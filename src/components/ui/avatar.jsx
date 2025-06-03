@@ -1,35 +1,78 @@
-"use client"
+import React from "react";
+import { cn } from "../utils/cn";
 
-import * as React from "react"
-import * as AvatarPrimitive from "@radix-ui/react-avatar"
+const AvatarContext = React.createContext({ imageStatus: 'loading' });
 
-import { cn } from "@/lib/utils"
+const Avatar = React.forwardRef(({ className, ...props }, ref) => {
+  const [imageStatus, setImageStatus] = React.useState('loading'); // 'loading', 'loaded', 'error'
+  
+  return (
+    <AvatarContext.Provider value={{ imageStatus, setImageStatus }}>
+      <span // Changed from div to span for inline-flex behavior by default
+        ref={ref}
+        className={cn(
+          "relative flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full align-middle", // Added align-middle & items-center justify-center
+          className
+        )}
+        {...props}
+      />
+    </AvatarContext.Provider>
+  );
+});
+Avatar.displayName = "Avatar";
 
-const Avatar = React.forwardRef(({ className, ...props }, ref) => (
-  <AvatarPrimitive.Root
-    ref={ref}
-    className={cn("relative flex h-10 w-10 shrink-0 overflow-hidden rounded-full", className)}
-    {...props} />
-))
-Avatar.displayName = AvatarPrimitive.Root.displayName
+const AvatarImage = React.forwardRef(({ className, src, alt, ...props }, ref) => {
+  const { setImageStatus } = React.useContext(AvatarContext);
 
-const AvatarImage = React.forwardRef(({ className, ...props }, ref) => (
-  <AvatarPrimitive.Image
-    ref={ref}
-    className={cn("aspect-square h-full w-full", className)}
-    {...props} />
-))
-AvatarImage.displayName = AvatarPrimitive.Image.displayName
+  React.useEffect(() => {
+    if (!src) {
+      setImageStatus('error'); // No src, treat as error for fallback
+      return;
+    }
+    const img = new Image();
+    img.src = src;
+    img.onload = () => setImageStatus('loaded');
+    img.onerror = () => setImageStatus('error');
+  }, [src, setImageStatus]);
 
-const AvatarFallback = React.forwardRef(({ className, ...props }, ref) => (
-  <AvatarPrimitive.Fallback
-    ref={ref}
-    className={cn(
-      "flex h-full w-full items-center justify-center rounded-full bg-muted",
-      className
-    )}
-    {...props} />
-))
-AvatarFallback.displayName = AvatarPrimitive.Fallback.displayName
+  const { imageStatus } = React.useContext(AvatarContext);
 
-export { Avatar, AvatarImage, AvatarFallback }
+  if (imageStatus !== 'loaded') {
+    return null; // Don't render img if not loaded, Fallback will show
+  }
+
+  return (
+    <img
+      ref={ref}
+      src={src}
+      alt={alt}
+      className={cn("aspect-square h-full w-full object-cover", className)}
+      {...props}
+    />
+  );
+});
+AvatarImage.displayName = "AvatarImage";
+
+const AvatarFallback = React.forwardRef(({ className, children, ...props }, ref) => {
+  const { imageStatus } = React.useContext(AvatarContext);
+
+  if (imageStatus === 'loaded') {
+    return null; // Don't render Fallback if image is loaded
+  }
+
+  return (
+    <span // Changed from div to span
+      ref={ref}
+      className={cn(
+        "flex h-full w-full items-center justify-center rounded-full bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-200",
+        className
+      )}
+      {...props}
+    >
+      {children}
+    </span>
+  );
+});
+AvatarFallback.displayName = "AvatarFallback";
+
+export { Avatar, AvatarImage, AvatarFallback };

@@ -1,4 +1,4 @@
-import { cn } from "@/lib/utils"
+import { cn } from "../utils/cn" // Updated path
 
 function Skeleton({
   className,
@@ -6,7 +6,7 @@ function Skeleton({
 }) {
   return (
     (<div
-      className={cn("animate-pulse rounded-md bg-primary/10", className)}
+      className={cn("animate-pulse rounded-md bg-muted", className)}
       {...props} />)
   );
 }

@@ -1,38 +1,52 @@
+
 import * as React from "react"
 import * as TogglePrimitive from "@radix-ui/react-toggle"
-import { cva } from "class-variance-authority";
+import { cva } from "class-variance-authority"
+import { cn } from "../utils/cn" // Updated path
 
-import { cn } from "@/lib/utils"
+export function Toggle({
+  className,
+  variant = "default",
+  size = "default",
+  pressed,
+  onPressedChange,
+  children,
+  ...props
+}) {
+  const variantStyles = {
+    default: pressed 
+      ? "bg-gray-200 text-gray-900 hover:bg-gray-200/80 dark:bg-gray-800 dark:text-gray-50"
+      : "bg-transparent hover:bg-gray-100 hover:text-gray-900 dark:hover:bg-gray-800 dark:hover:text-gray-50",
+    outline: cn(
+      "border border-gray-200 bg-transparent hover:bg-gray-100 hover:text-gray-900 dark:border-gray-800 dark:hover:bg-gray-800 dark:hover:text-gray-50",
+      pressed && "bg-gray-100 text-gray-900 dark:bg-gray-800 dark:text-gray-50"
+    ),
+    success: pressed
+      ? "bg-green-500/90 text-white hover:bg-green-500/80"
+      : "bg-gray-200 text-gray-700 hover:bg-gray-300",
+  };
 
-const toggleVariants = cva(
-  "inline-flex items-center justify-center gap-2 rounded-md text-sm font-medium transition-colors hover:bg-muted hover:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 data-[state=on]:bg-accent data-[state=on]:text-accent-foreground [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0",
-  {
-    variants: {
-      variant: {
-        default: "bg-transparent",
-        outline:
-          "border border-input bg-transparent shadow-sm hover:bg-accent hover:text-accent-foreground",
-      },
-      size: {
-        default: "h-9 px-2 min-w-9",
-        sm: "h-8 px-1.5 min-w-8",
-        lg: "h-10 px-2.5 min-w-10",
-      },
-    },
-    defaultVariants: {
-      variant: "default",
-      size: "default",
-    },
-  }
-)
+  const sizeStyles = {
+    default: "h-10 px-3",
+    sm: "h-9 px-2.5",
+    lg: "h-11 px-5",
+  };
 
-const Toggle = React.forwardRef(({ className, variant, size, ...props }, ref) => (
-  <TogglePrimitive.Root
-    ref={ref}
-    className={cn(toggleVariants({ variant, size, className }))}
-    {...props} />
-))
-
-Toggle.displayName = TogglePrimitive.Root.displayName
-
-export { Toggle, toggleVariants }
+  return (
+    <button
+      type="button"
+      aria-pressed={pressed}
+      data-state={pressed ? "on" : "off"}
+      onClick={() => onPressedChange && onPressedChange(!pressed)}
+      className={cn(
+        "inline-flex items-center justify-center rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-950 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 dark:focus-visible:ring-gray-300",
+        variantStyles[variant],
+        sizeStyles[size],
+        className
+      )}
+      {...props}
+    >
+      {children}
+    </button>
+  );
+}
