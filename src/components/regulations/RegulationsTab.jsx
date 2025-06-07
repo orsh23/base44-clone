@@ -13,7 +13,8 @@ import RegulationDialog from './RegulationDialog'; // Assuming this exists
 import RegulationCard from './RegulationCard';
 import ViewSwitcher from '@/components/common/ViewSwitcher';
 import GlobalActionButton from '@/components/common/GlobalActionButton';
-import DataTable from '@/components/shared/DataTable';
+// Corrected DataTable import path
+import { DataTable } from '@/components/ui/data-table';
 import RegulationFilterBar from './RegulationFilterBar'; // Assuming this exists
 import ImportDialog from '@/components/common/ImportDialog';
 import { Badge } from '@/components/ui/badge';

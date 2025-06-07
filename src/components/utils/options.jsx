@@ -1,5 +1,64 @@
 
-import { DAYS_OF_WEEK } from "./constants";
+import { DAYS_OF_WEEK,
+  PROVIDER_TYPES,
+  PROVIDER_LEGAL_TYPES,
+  PROVIDER_STATUSES,
+  DOCTOR_STATUSES,
+  MEDICAL_SPECIALTIES,
+  CITIES,
+  LANGUAGES,
+  COMMON_STATUSES,
+  EXPERIENCE_YEARS,
+  CODE_SYSTEMS,
+  MATERIAL_UNITS,
+  CURRENCIES,
+  TASK_STATUSES,
+  TASK_STATUS_OPTIONS,
+  TASK_PRIORITIES,
+  TASK_CATEGORIES,
+  TASK_RELATED_ENTITY_TYPES,
+  AFFILIATION_STATUSES,
+  CONTRACT_STATUSES,
+  RFC_STATUSES,
+  CLAIM_STATUSES,
+  REGULATION_TYPES,
+  IMPORT_MODULES,
+  POLICY_STATUSES,
+  GENDER_OPTIONS,
+  ID_TYPES
+} from "./constants";
+
+// Re-export constants from constants file to maintain compatibility
+export {
+  PROVIDER_TYPES,
+  PROVIDER_LEGAL_TYPES as LEGAL_ENTITY_TYPES, // Add alias for LEGAL_ENTITY_TYPES
+  PROVIDER_LEGAL_TYPES,
+  PROVIDER_STATUSES,
+  DOCTOR_STATUSES,
+  MEDICAL_SPECIALTIES,
+  CITIES,
+  LANGUAGES,
+  COMMON_STATUSES,
+  COMMON_STATUSES as STATUS_OPTIONS, // Add alias for STATUS_OPTIONS
+  EXPERIENCE_YEARS,
+  CODE_SYSTEMS,
+  MATERIAL_UNITS,
+  CURRENCIES,
+  TASK_STATUSES,
+  TASK_STATUS_OPTIONS,
+  TASK_PRIORITIES,
+  TASK_CATEGORIES,
+  TASK_RELATED_ENTITY_TYPES,
+  AFFILIATION_STATUSES,
+  CONTRACT_STATUSES,
+  RFC_STATUSES,
+  CLAIM_STATUSES,
+  REGULATION_TYPES,
+  IMPORT_MODULES,
+  POLICY_STATUSES,
+  GENDER_OPTIONS,
+  ID_TYPES
+};
 
 /**
  * Generate status options for select fields
@@ -229,15 +288,6 @@ export const getYesNoAllOptions = (t) => [
 
 // Options for various select dropdowns
 
-export const medicalCodeSystems = [
-  { value: "ICD9-DX", label: "ICD-9-DX" },
-  { value: "ICD10-CM", label: "ICD-10-CM" },
-  { value: "ICD10-PCS", label: "ICD-10-PCS" },
-  { value: "CPT", label: "CPT" },
-  { value: "HCPCS", label: "HCPCS" },
-  { value: "ICD9-PROC", label: "ICD-9-PROC" },
-];
-
 export const codeStatuses = [
   { value: "active", label: "Active" },
   { value: "deprecated", label: "Deprecated" },
@@ -275,22 +325,6 @@ export const accuracyTypes = [
   { value: "Approximate", label: "Approximate" },
   { value: "Partial", label: "Partial" },
 ];
-
-// For Provider types
-export const providerTypes = [
-    { value: "hospital", label: "Hospital" },
-    { value: "clinic", label: "Clinic" },
-    { value: "imaging_center", label: "Imaging Center" },
-    { value: "laboratory", label: "Laboratory" },
-    { value: "other", label: "Other" },
-];
-
-export const providerLegalTypes = [
-    { value: "company", label: "Company (חברה בע\"מ)" },
-    { value: "licensed_dealer", label: "Licensed Dealer (עוסק מורשה)" },
-    { value: "registered_association", label: "Registered Association (עמותה רשומה)" },
-];
-
 
 // For DiagnosisProcedureRelation
 export const relationTypes = [

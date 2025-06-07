@@ -1,401 +1,515 @@
-
-import { useState, useEffect, useCallback, useMemo } from 'react';
-import { useDebounce } from './useDebounce';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useToast } from '@/components/ui/use-toast';
-import { useLanguageHook as useTranslation } from '@/components/useLanguageHook';
-import { saveToStorage, loadFromStorage as loadJsonFromStorage } from '@/components/utils/storage';
+import { loadFromStorage, saveToStorage } from '@/components/utils/storage';
 
-export function useEntityModule({
-  entitySDK,
-  formHook,
-  entityName,
-  entityNamePlural = `${entityName}s`,
-  filterFunction,
-  initialFilters = {},
-  storageKey = null, // This storageKey is for filters which ARE JSON
-  defaultSort = '-updated_date', // Can be string like '-updated_date' or object { key: 'updated_date', direction: 'descending' }
-  defaultPageSize = 10
-}) {
-  const { t } = useTranslation();
-  const { toast } = useToast();
+// Enhanced rate limiting utility
+const createRateLimiter = () => {
+  const requestCache = new Map();
+  const lastRequestTime = new Map();
+  
+  const withRateLimit = async (entityName, apiCall, retries = 3, baseDelay = 2000) => {
+    if (typeof apiCall !== 'function') {
+      console.error('[useEntityModule] apiCall is not a function:', apiCall);
+      throw new Error('API call must be a function');
+    }
+    
+    const now = Date.now();
+    const lastTime = lastRequestTime.get(entityName) || 0;
+    const timeSinceLastRequest = now - lastTime;
+    
+    const minInterval = 1000; 
+    
+    if (timeSinceLastRequest < minInterval) {
+      const waitTime = minInterval - timeSinceLastRequest;
+      await new Promise(resolve => setTimeout(resolve, waitTime));
+    }
+    
+    const cacheKey = `${entityName}-${apiCall.toString()}`;
+    
+    if (requestCache.has(cacheKey)) {
+      return requestCache.get(cacheKey);
+    }
+    
+    const executeRequest = async () => {
+      for (let attempt = 0; attempt <= retries; attempt++) {
+        try {
+          lastRequestTime.set(entityName, Date.now());
+          const result = await apiCall();
+          requestCache.delete(cacheKey);
+          return result;
+        } catch (error) {
+          const isRateLimit = error.message?.includes('Rate limit') || 
+                             error.response?.status === 429 ||
+                             error.message?.includes('rate limit');
+          
+          if (isRateLimit && attempt < retries) {
+            const delay = baseDelay * Math.pow(2, attempt) + Math.random() * 1000;
+            console.warn(`Rate limited on ${entityName}, retrying in ${delay}ms (attempt ${attempt + 1}/${retries + 1})`);
+            await new Promise(resolve => setTimeout(resolve, delay));
+            continue;
+          }
+          
+          requestCache.delete(cacheKey);
+          throw error;
+        }
+      }
+    };
+    
+    const promise = executeRequest();
+    requestCache.set(cacheKey, promise);
+    return promise;
+  };
+  
+  return { withRateLimit };
+};
 
-  const [items, setItems] = useState([]);
-  const [loading, setLoading] = useState(true);
+const globalRateLimiter = createRateLimiter();
+
+export function useEntityModule(config) {
+  const toastHook = useToast();
+  const toast = toastHook?.toast || ((options) => console.warn('Toast not available:', options));
+
+  const isMountedRef = useRef(true);
+  const lastFetchRef = useRef(0);
+  
+  const {
+    entitySDK,
+    entityName = 'Item',
+    entityNamePlural = 'Items',
+    DialogComponent,
+    initialSort = [{ id: 'created_date', desc: true }],
+    initialFilters = {},
+    searchFields = [],
+    filterFunction,
+    storageKey = 'entityModule',
+  } = config || {};
+
+  // Ensure we always have valid default sort
+  const defaultSortConfig = useMemo(() => {
+    if (Array.isArray(initialSort) && initialSort.length > 0 && initialSort[0] && typeof initialSort[0].id === 'string') {
+        return initialSort.map(s => ({ key: s.id, desc: !!s.desc }));
+    }
+    return [{ key: 'created_date', desc: true }];
+  }, [initialSort]);
+
+  // Initial validation with comprehensive fallbacks
+  if (!entitySDK || typeof entitySDK.list !== 'function') {
+    console.error(`[useEntityModule] Critical Error for ${entityName}: entitySDK is missing or invalid.`);
+    
+    // Return stable, working functions with proper function signatures
+    const stableNoOp = useCallback(() => {
+      console.warn(`useEntityModule (${entityName}) not fully initialized: function called.`);
+    }, [entityName]);
+
+    const stableAsyncNoOp = useCallback(async () => {
+      console.warn(`useEntityModule (${entityName}) not fully initialized: async operation called.`);
+      return { successCount: 0, failCount: 0 };
+    }, [entityName]);
+
+    const stableFilterChangeHandler = useCallback((filterKey, filterValue) => {
+      console.warn(`useEntityModule (${entityName}) not fully initialized: handleFilterChange called.`);
+    }, [entityName]);
+
+    const stableSortChangeHandler = useCallback((newSorts) => {
+      console.warn(`useEntityModule (${entityName}) not fully initialized: handleSortChange called.`);
+    }, [entityName]);
+
+    const stablePageChangeHandler = useCallback((newPageIndex) => {
+      console.warn(`useEntityModule (${entityName}) not fully initialized: handlePageChange called.`);
+    }, [entityName]);
+
+    return {
+      items: [], 
+      rawItems: [], 
+      filteredAndSortedItems: [],
+      loading: false, 
+      error: `Invalid SDK for ${entityName}.`,
+      filters: initialFilters, 
+      sortConfig: defaultSortConfig, 
+      pagination: { 
+        currentPage: 1, 
+        pageSize: 10, 
+        totalCount: 0, 
+        totalPages: 1, 
+        pageIndex: 0 
+      },
+      selectedItems: [], 
+      setSelectedItems: stableNoOp,
+      isSelectionModeActive: false, 
+      setIsSelectionModeActive: stableNoOp,
+      isDialogOpen: false, 
+      setIsDialogOpen: stableNoOp,
+      currentItem: null, 
+      setCurrentItem: stableNoOp,
+      handleRefresh: stableNoOp,
+      handleFilterChange: stableFilterChangeHandler,
+      handleSortChange: stableSortChangeHandler,
+      handlePageChange: stablePageChangeHandler,
+      handlePageSizeChange: stablePageChangeHandler,
+      handleAddNew: stableNoOp,
+      handleEdit: stableNoOp,
+      handleBulkDelete: stableAsyncNoOp,
+      handleToggleSelection: stableNoOp,
+      handleSelectAll: stableNoOp,
+      handleSelfSubmittingDialogClose: stableNoOp,
+    };
+  }
+
+  // State management
+  const [rawItems, setRawItems] = useState([]);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
-  
-  const [isDialogOpen, setIsDialogOpen] = useState(false);
-  const [currentItem, setCurrentItem] = useState(null);
-  
-  const [searchQuery, setSearchQuery] = useState('');
-  const debouncedSearchQuery = useDebounce(searchQuery, 300);
-  
-  // For filters, loadJsonFromStorage (which uses JSON.parse) is correct.
-  const loadedFilters = storageKey 
-    ? loadJsonFromStorage(`${storageKey}_filters`, initialFilters) 
-    : initialFilters;
-  
-  const [filters, setFilters] = useState(loadedFilters);
+
+  const [filters, setFilters] = useState(() => {
+    try {
+      const savedFilters = loadFromStorage(`${storageKey}_filters`, null);
+      return savedFilters ? { ...initialFilters, ...savedFilters } : initialFilters;
+    } catch (e) {
+      console.warn(`[useEntityModule] Failed to load saved filters for ${storageKey}:`, e);
+      return initialFilters;
+    }
+  });
+
+  const [sortConfig, setSortConfig] = useState(() => {
+    try {
+      const savedSort = loadFromStorage(`${storageKey}_sort`, null);
+      if (Array.isArray(savedSort) && savedSort.length > 0 && savedSort[0] && typeof savedSort[0].key === 'string') {
+        return savedSort;
+      }
+      return defaultSortConfig;
+    } catch (e) {
+      console.warn(`[useEntityModule] Failed to load saved sort config for ${storageKey}:`, e);
+      return defaultSortConfig;
+    }
+  });
+
+  const [pagination, setPagination] = useState({
+    pageIndex: 0,
+    pageSize: (filters && typeof filters.pageSize === 'number') ? filters.pageSize : 10,
+  });
 
   const [selectedItems, setSelectedItems] = useState([]);
-  
-  const [sorting, setSorting] = useState(() => {
-    let sortField;
-    let sortDesc;
-    if (typeof defaultSort === 'string') {
-      sortField = defaultSort.startsWith('-') ? defaultSort.substring(1) : defaultSort;
-      sortDesc = defaultSort.startsWith('-');
-    } else if (typeof defaultSort === 'object' && defaultSort !== null && defaultSort.key) {
-      sortField = defaultSort.key;
-      sortDesc = defaultSort.direction === 'descending';
-    } else { // Fallback if defaultSort is invalid
-      console.warn(`Invalid defaultSort format: ${JSON.stringify(defaultSort)}. Falling back to '-updated_date'.`);
-      sortField = 'updated_date';
-      sortDesc = true;
-    }
-    return [{ id: sortField, desc: sortDesc }];
-  });
-
-  const [pagination, setPagination] = useState({ 
-    pageIndex: 0, 
-    pageSize: defaultPageSize 
-  });
-  
-  const defaultFormMethods = {
-    formData: currentItem || {},
-    errors: {},
-    isSubmitting: false,
-    updateField: () => console.warn("useEntityModule: updateField called without a formHook."),
-    updateNestedField: () => console.warn("useEntityModule: updateNestedField called without a formHook."),
-    handleSubmit: async () => console.warn("useEntityModule: handleSubmit called without a formHook. Dialog should handle its own submission."),
-    resetForm: () => console.warn("useEntityModule: resetForm called without a formHook."),
-  };
-
-  const formHookProvided = typeof formHook === 'function';
-
-  const formMethods = formHookProvided
-    ? formHook(currentItem, (savedItem) => {
-        fetchItems();
-        closeDialog();
-        toast({
-          title: currentItem
-            ? t('common.updateSuccess', { entity: entityName })
-            : t('common.createSuccess', { entity: entityName }),
-          variant: 'success'
-        });
-      }, isDialogOpen)
-    : defaultFormMethods;
-
-  const {
-    formData,
-    errors: formErrors,
-    isSubmitting,
-    updateField,
-    updateNestedField,
-    handleSubmit: handleFormSubmit,
-    resetForm,
-    ...otherFormProps
-  } = formMethods;
-  
-  const fetchItems = useCallback(async (forceRefresh = false) => {
-    setLoading(true);
-    setError(null);
-    try {
-      const sortParam = sorting.length > 0 ? `${sorting[0].desc ? '-' : ''}${sorting[0].id}` : (
-        typeof defaultSort === 'string' ? defaultSort : `${defaultSort.direction === 'descending' ? '-' : ''}${defaultSort.key}`
-      );
-      const fetchedItems = await entitySDK.list(sortParam);
-      setItems(Array.isArray(fetchedItems) ? fetchedItems : []);
-    } catch (err) {
-      console.error(`Error fetching ${entityNamePlural}:`, err);
-      setError(err);
-      toast({
-        variant: "destructive",
-        title: t('common.fetchError', { entity: entityNamePlural }),
-        description: err.message
-      });
-      setItems([]);
-    } finally {
-      setLoading(false);
-    }
-  }, [entitySDK, entityNamePlural, defaultSort, toast, sorting, t]);
-  
-  useEffect(() => {
-    fetchItems();
-  }, [fetchItems]);
-
-  const openDialog = useCallback((item = null) => {
-    setCurrentItem(item);
-    setIsDialogOpen(true);
-  }, []);
-
-  const closeDialog = useCallback(() => {
-    setIsDialogOpen(false);
-    setCurrentItem(null);
-    if (formHookProvided) {
-      resetForm();
-    }
-  }, [resetForm, formHookProvided]);
-  
-  const handleSelfSubmittingDialogClose = useCallback((refreshNeeded) => {
-    if (refreshNeeded) {
-      fetchItems(true);
-    }
-    closeDialog();
-  }, [fetchItems, closeDialog]);
+  const [isSelectionModeActive, setIsSelectionModeActive] = useState(false);
+  const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [currentItem, setCurrentItem] = useState(null);
 
   useEffect(() => {
-    // Only save filters if they differ from initial ones to avoid unnecessary storage writes
-    if (storageKey && JSON.stringify(filters) !== JSON.stringify(initialFilters)) {
-      saveToStorage(`${storageKey}_filters`, filters);
-    }
-  }, [filters, storageKey, initialFilters]);
-  
-  const handleFilterChangeCallback = useCallback((newFilters) => {
-    setFilters(prev => ({ ...prev, ...newFilters }));
-    setPagination(prev => ({ ...prev, pageIndex: 0 }));
-  }, []);
-  
-  const resetFiltersCallback = useCallback(() => {
-    setSearchQuery('');
-    setFilters(initialFilters);
-    setPagination(prev => ({ ...prev, pageIndex: 0 }));
-    if (storageKey) {
-      saveToStorage(`${storageKey}_filters`, initialFilters);
-    }
-  }, [initialFilters, storageKey]);
-  
-  const handleDeleteCallback = useCallback(async (itemId) => {
-    setLoading(true);
-    try {
-      await entitySDK.delete(itemId);
-      toast({
-        title: t('common.deleteSuccess', { entity: entityName }),
-        variant: 'success'
-      });
-      fetchItems();
-      setSelectedItems(prev => prev.filter(id => id !== itemId)); // Remove deleted item from selection
-    } catch (err) {
-      console.error(`Error deleting ${entityName}:`, err);
-      toast({
-        variant: "destructive",
-        title: t('common.deleteError', { entity: entityName }),
-        description: err.message
-      });
-    } finally {
-      setLoading(false);
-    }
-  }, [entitySDK, entityName, fetchItems, t, toast]);
-  
-  const handleBulkDeleteCallback = useCallback(async () => {
-    if (selectedItems.length === 0) return;
-
-    setLoading(true);
-    try {
-      await Promise.all(selectedItems.map(itemId => entitySDK.delete(itemId)));
-      toast({
-        title: t('common.bulkDeleteSuccess', { count: selectedItems.length, entityPlural: entityNamePlural }),
-        variant: 'success'
-      });
-      setSelectedItems([]); // Clear selection
-      fetchItems();
-    } catch (err) {
-      console.error(`Error bulk deleting ${entityNamePlural}:`, err);
-      toast({
-        variant: "destructive",
-        title: t('common.bulkDeleteError', { entityPlural: entityNamePlural }),
-        description: err.message
-      });
-    } finally {
-      setLoading(false);
-    }
-  }, [selectedItems, entitySDK, entityName, entityNamePlural, fetchItems, t, toast]);
-
-  const handleSortChange = useCallback((columnId, directionOverride) => {
-    setSorting(prevSorting => {
-      const currentSort = prevSorting.length > 0 ? prevSorting[0] : {};
-      let newDirection = 'asc'; // Default to ascending if no current sort or different column
-      if (currentSort.id === columnId) {
-        newDirection = currentSort.desc ? 'asc' : 'desc'; // Toggle if same column
-      }
-      if (directionOverride) { // Allow explicit direction setting
-        newDirection = directionOverride;
-      }
-      return [{ id: columnId, desc: newDirection === 'desc' }];
-    });
-    setPagination(prev => ({ ...prev, pageIndex: 0 }));
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
   }, []);
 
-  const filteredAndSortedItems = useMemo(() => {
-    let sourceItems = Array.isArray(items) ? items : [];
-    let processedItems = sourceItems;
-
-    // Apply custom filter function if provided
-    if (typeof filterFunction === 'function') {
-      const customFiltered = filterFunction(sourceItems, filters, debouncedSearchQuery);
-      processedItems = Array.isArray(customFiltered) ? customFiltered : sourceItems;
-    } else {
-      // Default filtering logic (combining search query and filters object)
-      processedItems = sourceItems.filter(item => {
-        const searchMatch = !debouncedSearchQuery ||
-          Object.values(item).some(val =>
-            val && String(val).toLowerCase().includes(debouncedSearchQuery.toLowerCase())
-          );
-
-        const otherFiltersMatch = Object.entries(filters).every(([key, value]) => {
-          if (key === 'searchTerm' || value === null || value === undefined || value === '' || String(value).toLowerCase() === 'all') return true;
-
-          const itemVal = item[key];
-          if (itemVal === undefined || itemVal === null) return false;
-
-          if (typeof itemVal === 'boolean') {
-            return itemVal === (String(value).toLowerCase() === 'true');
-          }
-          return String(itemVal).toLowerCase().includes(String(value).toLowerCase());
-        });
-        return searchMatch && otherFiltersMatch;
-      });
+  // Stable handleRefresh function with better error handling
+  const handleRefresh = useCallback(async (forceRefresh = false) => {
+    if (!isMountedRef.current || !entitySDK || typeof entitySDK.list !== 'function') {
+      console.warn('[useEntityModule] handleRefresh called but conditions not met');
+      return;
     }
     
-    // Apply sorting (simplified, assumes sorting is an array with one object like TanStack Table)
-    if (sorting.length > 0) {
-      const sortKey = sorting[0].id;
-      const sortDesc = sorting[0].desc;
-      
-      const sortableItems = [...processedItems]; // Create a shallow copy to sort
-
-      sortableItems.sort((a, b) => {
-        let valA = a[sortKey];
-        let valB = b[sortKey];
-
-        // Handle null/undefined values by placing them at the end (or beginning, depending on desc)
-        if (valA === null || valA === undefined) return sortDesc ? -1 : 1; // Nulls go to the end for desc, start for asc
-        if (valB === null || valB === undefined) return sortDesc ? 1 : -1; // Nulls go to the end for desc, start for asc
-
-        if (typeof valA === 'string' && typeof valB === 'string') {
-          return sortDesc ? valB.localeCompare(valA) : valA.localeCompare(valB);
-        } else if (typeof valA === 'number' && typeof valB === 'number') {
-          return sortDesc ? valB - valA : valA - valB;
-        } else if (valA instanceof Date && valB instanceof Date) {
-          return sortDesc ? valB.getTime() - valA.getTime() : valA.getTime() - valB.getTime();
-        } else {
-          // Fallback for mixed types or non-standard types: convert to string
-          const strA = String(valA).toLowerCase();
-          const strB = String(valB).toLowerCase();
-          return sortDesc ? strB.localeCompare(strA) : strA.localeCompare(strB);
-        }
-      });
-      processedItems = sortableItems;
+    const now = Date.now();
+    const timeSinceLastFetch = now - lastFetchRef.current;
+    
+    // Prevent multiple simultaneous calls
+    if (!forceRefresh && timeSinceLastFetch < 500) {
+      return;
     }
-    return Array.isArray(processedItems) ? processedItems : [];
-  }, [items, filters, debouncedSearchQuery, filterFunction, sorting]);
 
+    if (isMountedRef.current) {
+      setLoading(true);
+      setError(null);
+      lastFetchRef.current = now;
+    }
 
+    try {
+      let sortParam = '';
+      if (Array.isArray(sortConfig) && sortConfig.length > 0 && sortConfig[0]?.key) {
+         sortParam = sortConfig[0].desc ? `-${sortConfig[0].key}` : sortConfig[0].key;
+      } else if (Array.isArray(defaultSortConfig) && defaultSortConfig.length > 0 && defaultSortConfig[0]?.key) {
+         sortParam = defaultSortConfig[0].desc ? `-${defaultSortConfig[0].key}` : defaultSortConfig[0].key;
+      }
+
+      const apiCall = () => entitySDK.list(sortParam, undefined, filters);
+      const data = await globalRateLimiter.withRateLimit(entityName, apiCall);
+
+      if (isMountedRef.current) {
+        setRawItems(Array.isArray(data) ? data : []);
+      }
+    } catch (err) {
+      if (!isMountedRef.current) return;
+      
+      console.error(`Error fetching ${entityNamePlural}:`, err);
+      
+      const isRateLimitError = err.message?.toLowerCase().includes('rate limit') || err.response?.status === 429;
+      
+      if (isRateLimitError) {
+        setError(new Error('Too many requests. Please wait a moment and try again.'));
+      } else {
+        let errorMessage = `Failed to fetch ${entityNamePlural}. Please check your connection.`;
+        if (err?.message) {
+          errorMessage = err.message;
+        } else if (err) {
+          errorMessage = String(err);
+        }
+        setError(new Error(errorMessage));
+      }
+      setRawItems([]);
+    } finally {
+      if (isMountedRef.current) {
+        setLoading(false);
+      }
+    }
+  }, [
+    entitySDK, 
+    entityName, 
+    entityNamePlural, 
+    sortConfig, 
+    defaultSortConfig, 
+    filters
+  ]);
+
+  // Filtered and sorted items with better error handling
+  const filteredAndSortedItems = useMemo(() => {
+    let itemsToProcess = Array.isArray(rawItems) ? rawItems : [];
+
+    if (typeof filterFunction === 'function') {
+      try {
+        const currentFilters = (typeof filters === 'object' && filters !== null) ? filters : {};
+        itemsToProcess = itemsToProcess.filter(item => {
+          if (item === undefined || item === null) {
+            console.warn('[useEntityModule] Undefined or null item encountered during filtering.');
+            return false;
+          }
+          try {
+            return filterFunction(item, currentFilters);
+          } catch (innerFilterError) {
+            console.error('[useEntityModule] Error inside provided filterFunction for item:', item, innerFilterError);
+            return true;
+          }
+        });
+      } catch (filterError) {
+        console.error('[useEntityModule] Error in filtering logic:', filterError);
+      }
+    }
+    return itemsToProcess;
+  }, [rawItems, filters, filterFunction]);
+
+  // Paginated items
   const paginatedItems = useMemo(() => {
-    const { pageIndex, pageSize } = pagination;
-    const start = pageIndex * pageSize;
-    const end = start + pageSize;
-    return Array.isArray(filteredAndSortedItems) ? filteredAndSortedItems.slice(start, end) : [];
-  }, [filteredAndSortedItems, pagination]);
+    const startIndex = pagination.pageIndex * pagination.pageSize;
+    const endIndex = startIndex + pagination.pageSize;
+    return filteredAndSortedItems.slice(startIndex, endIndex);
+  }, [filteredAndSortedItems, pagination.pageIndex, pagination.pageSize]);
 
-  const totalFilteredItems = useMemo(() => {
-    return Array.isArray(filteredAndSortedItems) ? filteredAndSortedItems.length : 0;
-  }, [filteredAndSortedItems]);
+  // Update pagination totals
+  useEffect(() => {
+    setPagination(prev => ({
+      ...prev,
+      totalItems: filteredAndSortedItems.length,
+      totalPages: Math.max(1, Math.ceil(filteredAndSortedItems.length / prev.pageSize))
+    }));
+  }, [filteredAndSortedItems.length, pagination.pageSize]);
 
-  const handleAddNew = useCallback(() => openDialog(), [openDialog]);
+  // Stable handler functions with better error handling
+  const handleFilterChange = useCallback((filterKey, filterValue) => {
+    try {
+      if (filterKey === null || filterKey === undefined) {
+        setFilters(filterValue || initialFilters);
+        saveToStorage(`${storageKey}_filters`, filterValue || initialFilters);
+      } else {
+        const newFilters = { ...filters, [filterKey]: filterValue };
+        setFilters(newFilters);
+        saveToStorage(`${storageKey}_filters`, newFilters);
+      }
+      setPagination(prev => ({ ...prev, pageIndex: 0 }));
+    } catch (error) {
+      console.error('[useEntityModule] Error in handleFilterChange:', error);
+    }
+  }, [filters, initialFilters, storageKey]);
 
-  const handleEdit = useCallback((item) => openDialog(item), [openDialog]);
+  const handleSortChange = useCallback((newSorts) => {
+    try {
+      const formattedSorts = Array.isArray(newSorts)
+        ? newSorts.map(s => ({ key: s.id || s.key || '', desc: !!s.desc }))
+        : [];
+
+      setSortConfig(formattedSorts);
+      saveToStorage(`${storageKey}_sort`, formattedSorts);
+      setPagination(prev => ({ ...prev, pageIndex: 0 }));
+    } catch (error) {
+      console.error('[useEntityModule] Error in handleSortChange:', error);
+    }
+  }, [storageKey]);
+
+  const handlePageChange = useCallback((newPageIndex) => {
+    try {
+      setPagination(prev => ({ ...prev, pageIndex: newPageIndex }));
+    } catch (error) {
+      console.error('[useEntityModule] Error in handlePageChange:', error);
+    }
+  }, []);
+
+  const handlePageSizeChange = useCallback((newPageSize) => {
+    try {
+      setPagination(prev => ({ ...prev, pageSize: newPageSize, pageIndex: 0 }));
+    } catch (error) {
+      console.error('[useEntityModule] Error in handlePageSizeChange:', error);
+    }
+  }, []);
+
+  const handleAddNew = useCallback(() => {
+    try {
+      setCurrentItem(null);
+      setIsDialogOpen(true);
+    } catch (error) {
+      console.error('[useEntityModule] Error in handleAddNew:', error);
+    }
+  }, []);
+
+  const handleEdit = useCallback((item) => {
+    try {
+      setCurrentItem(item);
+      setIsDialogOpen(true);
+    } catch (error) {
+      console.error('[useEntityModule] Error in handleEdit:', error);
+    }
+  }, []);
+
+  const handleBulkDelete = useCallback(async (itemIds) => {
+    if (!Array.isArray(itemIds) || itemIds.length === 0 || !entitySDK || typeof entitySDK.delete !== 'function') {
+      return { successCount: 0, failCount: 0 };
+    }
+
+    let successCount = 0;
+    let failCount = 0;
+
+    for (const itemId of itemIds) {
+      try {
+        await entitySDK.delete(itemId);
+        successCount++;
+      } catch (error) {
+        console.error(`[useEntityModule] Failed to delete item ${itemId}:`, error);
+        failCount++;
+      }
+    }
+    
+    // Refresh data after bulk delete
+    if (typeof handleRefresh === 'function') {
+      handleRefresh(true);
+    }
+    
+    return { successCount, failCount };
+  }, [entitySDK, handleRefresh]);
 
   const handleToggleSelection = useCallback((itemId) => {
-    setSelectedItems(prev => {
-      if (prev.includes(itemId)) {
-        return prev.filter(id => id !== itemId);
-      } else {
-        return [...prev, itemId];
-      }
-    });
+    try {
+      setSelectedItems(prev => {
+        if (prev.includes(itemId)) {
+          return prev.filter(id => id !== itemId);
+        } else {
+          return [...prev, itemId];
+        }
+      });
+    } catch (error) {
+      console.error('[useEntityModule] Error in handleToggleSelection:', error);
+    }
   }, []);
 
-  const handleSelectAll = useCallback(() => {
-    if (selectedItems.length === paginatedItems.length) {
-      setSelectedItems([]);
-    } else {
-      setSelectedItems(paginatedItems.map(item => item.id));
+  const handleSelectAll = useCallback((itemIdsToSelectOrDeselect, shouldSelect) => {
+    try {
+      if (Array.isArray(itemIdsToSelectOrDeselect)) {
+          if (shouldSelect) {
+              setSelectedItems(prev => [...new Set([...prev, ...itemIdsToSelectOrDeselect])]);
+          } else {
+              setSelectedItems(prev => prev.filter(id => !itemIdsToSelectOrDeselect.includes(id)));
+          }
+      } else {
+          const allVisibleIds = paginatedItems.map(item => item.id).filter(Boolean);
+          const allCurrentlyVisibleSelected = allVisibleIds.every(id => selectedItems.includes(id));
+          if (allCurrentlyVisibleSelected) {
+              setSelectedItems(prev => prev.filter(id => !allVisibleIds.includes(id)));
+          } else {
+              setSelectedItems(prev => [...new Set([...prev, ...allVisibleIds])]);
+          }
+      }
+    } catch (error) {
+      console.error('[useEntityModule] Error in handleSelectAll:', error);
     }
   }, [paginatedItems, selectedItems]);
-  
-  return {
-    items: paginatedItems, // Return paginated items
-    rawItems: items, // Raw, unsorted, unfiltered items
-    filteredAndSortedItems, // Items after filtering and sorting, before pagination
-    loading, 
-    error, 
-    
-    isDialogOpen, 
-    currentItem, 
-    openDialog, 
-    closeDialog,
-    
-    // Form related (from formHook or default)
-    formData, 
-    formErrors, 
-    isSubmitting, 
-    updateField, 
-    updateNestedField, 
-    handleSubmit: handleFormSubmit, 
-    resetForm, 
-    ...otherFormProps,
-    
-    // Search and Filter specific
-    searchQuery, 
-    setSearchQuery,
-    debouncedSearchQuery,
-    filters, 
-    setFilters,
-    handleFilterChange: handleFilterChangeCallback, 
-    resetFilters: resetFiltersCallback,
-    
-    // Selection specific
-    selectedItems, 
-    setSelectedItems, 
-    hasSelectedItems: selectedItems.length > 0,
-    selectedCount: selectedItems.length,
-    isSelectionModeActive: selectedItems.length > 0,
-    setIsSelectionModeActive: (active) => {
-        if (!active) setSelectedItems([]);
-    },
-    handleToggleSelection,
-    handleSelectAll,
 
-    // Sorting and Pagination for DataTable
-    sorting,
-    setSorting, // Directly expose for TanStack Table
-    sortConfig: sorting.length > 0 
-        ? { key: sorting[0].id, direction: sorting[0].desc ? 'descending' : 'ascending' } 
-        : { key: (typeof defaultSort === 'string' ? (defaultSort.startsWith('-') ? defaultSort.substring(1) : defaultSort) : defaultSort.key), 
-            direction: (typeof defaultSort === 'string' ? (defaultSort.startsWith('-') ? 'descending' : 'ascending') : defaultSort.direction) },
-    setSortConfig: (newSortConfig) => { // Adapt to {key, direction} object
-      setSorting([{ id: newSortConfig.key, desc: newSortConfig.direction === 'descending' }]);
-    },
-    pagination: { // Adapt to TanStack Table like pagination object
-        pageIndex: pagination.pageIndex,
-        pageSize: pagination.pageSize,
-        totalItems: totalFilteredItems,
-        totalPages: Math.ceil(totalFilteredItems / pagination.pageSize) || 1,
-    },
-    setPagination, // Allow direct setting for TanStack Table
+  const handleSelfSubmittingDialogClose = useCallback((refreshNeeded, actionType, itemName) => {
+    try {
+      setIsDialogOpen(false);
+      setCurrentItem(null);
+      
+      setSelectedItems([]);
+      setIsSelectionModeActive(false);
+      
+      if (refreshNeeded && typeof handleRefresh === 'function') {
+        handleRefresh(true);
+        if (toast && actionType && itemName) {
+            const successMessages = {
+              create: `Successfully created ${itemName}.`,
+              update: `Successfully updated ${itemName}.`,
+              delete: `Successfully deleted ${itemName}.`,
+            };
+            toast({
+              title: 'Success',
+              description: successMessages[actionType] || 'Action completed successfully.',
+            });
+          }
+      }
+    } catch (error) {
+      console.error('[useEntityModule] Error in handleSelfSubmittingDialogClose:', error);
+    }
+  }, [handleRefresh, toast]);
+
+  // Initial data load
+  useEffect(() => {
+    if (typeof handleRefresh === 'function') {
+      handleRefresh();
+    }
+  }, [handleRefresh]);
+
+  return {
+    items: paginatedItems,
+    rawItems,
+    filteredAndSortedItems,
     
-    // CRUD Actions
-    fetchItems, // Renamed from handleRefresh to be more generic
-    handleRefresh: fetchItems, // Keep handleRefresh for backward compatibility if any tab uses it
-    handleSearch: setSearchQuery, // Expose setSearchQuery as handleSearch for consistency
-    handleSortChange, // This is the TanStack Table compatible sort changer
-    handlePageChange: (newPageIndex) => setPagination(prev => ({ ...prev, pageIndex: newPageIndex })), // TanStack Table
-    handlePageSizeChange: (newPageSize) => setPagination(prev => ({ ...prev, pageSize: newPageSize, pageIndex: 0 })), // TanStack Table
+    loading,
+    error,
+    filters,
+    sortConfig,
+    pagination: {
+      ...pagination,
+      currentPage: pagination.pageIndex + 1,
+      totalPages: Math.ceil(filteredAndSortedItems.length / pagination.pageSize) || 1,
+      totalCount: filteredAndSortedItems.length,
+    },
+    
+    selectedItems,
+    setSelectedItems,
+    isSelectionModeActive,
+    setIsSelectionModeActive,
+    
+    isDialogOpen,
+    setIsDialogOpen,
+    currentItem,
+    setCurrentItem,
+    
+    handleRefresh,
+    handleFilterChange,
+    handleSortChange,
+    handlePageChange,
+    handlePageSizeChange,
+    
     handleAddNew,
     handleEdit,
-    handleDelete: handleDeleteCallback, 
-    handleBulkDelete: handleBulkDeleteCallback,
+    handleBulkDelete,
+    handleToggleSelection,
+    handleSelectAll,
     handleSelfSubmittingDialogClose,
-    totalFilteredItems, // expose total count after filtering
   };
 }
+
+export default useEntityModule;

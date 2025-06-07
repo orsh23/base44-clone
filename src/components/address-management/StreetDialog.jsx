@@ -1,10 +1,11 @@
+
 import React, { useState, useEffect, useMemo } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogClose } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import BilingualInput from '@/components/forms/BilingualInput';
-import FormField from '@/components/forms/FormField';
+import FormField from '@/components/shared/forms/FormField'; // Corrected import path
 
 const StreetDialog = ({ isOpen, onClose, onSubmit, street, cities, t }) => {
   const [formData, setFormData] = useState({

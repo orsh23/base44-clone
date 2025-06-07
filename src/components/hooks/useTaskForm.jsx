@@ -1,116 +1,83 @@
-import { useState, useCallback, useEffect } from 'react';
-import { useToast } from '../ui/use-toast';
+// Content of components/hooks/useTaskForm.js
+import { useForm } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import * as z from 'zod';
 import { Task } from '@/api/entities';
-import { useTranslation } from '../utils/i18n';
+import { useToast } from '@/components/ui/use-toast';
+import { useLanguageHook } from '@/components/useLanguageHook';
+import { User } from '@/api/entities'; // For fetching user list for assignee
 
-// Define default options if not available from constants
-const DEFAULT_STATUS_OPTIONS = [
-  { value: 'todo', label: 'To Do' },
-  { value: 'in_progress', label: 'In Progress' },
-  { value: 'done', label: 'Done' }
-];
+const getTaskSchema = (t) => z.object({
+  title: z.string().min(1, { message: t('validation.requiredField', { fieldName: t('tasks.fields.title', {defaultValue: 'Title'}) }) }),
+  description: z.string().optional().nullable(),
+  status: z.enum(['todo', 'in_progress', 'done', 'cancelled']).default('todo'),
+  priority: z.enum(['low', 'medium', 'high', 'urgent']).default('medium'),
+  category: z.enum(['claim_review', 'provider_onboarding', 'contract_negotiation', 'compliance_check', 'data_validation', 'system_maintenance', 'training', 'general']).default('general'),
+  due_date: z.date().optional().nullable(),
+  assigned_to: z.string().email({ message: t('validation.invalidEmailFormat') }).optional().nullable(), // Assuming assigned_to is user email
+  // created_by is usually set by the backend or context
+  tags: z.array(z.string()).optional().default([]),
+  related_entity_type: z.enum(['provider', 'doctor', 'claim', 'rfc', 'contract', 'policy', 'none']).default('none').optional().nullable(),
+  related_entity_id: z.string().optional().nullable(),
+  estimated_hours: z.coerce.number().optional().nullable(),
+  actual_hours: z.coerce.number().optional().nullable(),
+});
 
-const DEFAULT_PRIORITY_OPTIONS = [
-  { value: 'low', label: 'Low' },
-  { value: 'medium', label: 'Medium' },
-  { value: 'high', label: 'High' }
-];
-
-const DEFAULT_CATEGORY_OPTIONS = [
-  { value: 'work', label: 'Work' },
-  { value: 'personal', label: 'Personal' },
-  { value: 'shopping', label: 'Shopping' },
-  { value: 'health', label: 'Health' },
-  { value: 'learning', label: 'Learning' }
-];
-
-export function useTaskForm(initialTask = null, onSuccess) {
-  const { t } = useTranslation();
+export function useTaskForm(defaultValues, onSubmitSuccess) {
+  const { t } = useLanguageHook();
   const { toast } = useToast();
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  
-  const getInitialState = useCallback(() => ({
-    title: '',
-    description: '',
-    status: DEFAULT_STATUS_OPTIONS[0]?.value || 'todo',
-    priority: DEFAULT_PRIORITY_OPTIONS[1]?.value || 'medium',
-    category: DEFAULT_CATEGORY_OPTIONS[0]?.value || 'personal',
-    due_date: '',
-    ...(initialTask || {})
-  }), [initialTask]);
+  const taskSchema = getTaskSchema(t);
 
-  const [formData, setFormData] = useState(getInitialState());
-  const [errors, setErrors] = useState({});
+  const form = useForm({
+    resolver: zodResolver(taskSchema),
+    defaultValues: defaultValues ? {
+        ...defaultValues,
+        due_date: defaultValues.due_date ? new Date(defaultValues.due_date) : null,
+        tags: defaultValues.tags || [],
+    } : {
+      status: 'todo',
+      priority: 'medium',
+      category: 'general',
+      related_entity_type: 'none',
+      tags: [],
+    },
+  });
 
-  useEffect(() => {
-    setFormData(getInitialState());
-    setErrors({});
-  }, [initialTask, getInitialState]);
-
-  const updateField = useCallback((field, value) => {
-    setFormData(prev => ({ ...prev, [field]: value }));
-    if (errors[field]) {
-      setErrors(prev => {
-        const newErrors = { ...prev };
-        delete newErrors[field];
-        return newErrors;
-      });
-    }
-  }, [errors]);
-
-  const validate = useCallback(() => {
-    const newErrors = {};
-    
-    if (!formData.title?.trim()) {
-      newErrors.title = t('validation.required', { field: t('tasks.title') });
-    }
-
-    // Other validations if needed (due_date format etc.)
-    
-    setErrors(newErrors);
-    return Object.keys(newErrors).length === 0;
-  }, [formData, t]);
-
-  const resetForm = useCallback(() => {
-    setFormData(getInitialState());
-    setErrors({});
-  }, [getInitialState]);
-
-  const handleSubmit = useCallback(async (event) => {
-    if (event) event.preventDefault();
-    if (!validate()) return false;
-
-    setIsSubmitting(true);
+  const handleSubmit = form.handleSubmit(async (data) => {
     try {
-      let savedTask;
-      if (initialTask?.id) {
-        savedTask = await Task.update(initialTask.id, formData);
-        toast({ title: t('tasks.updateSuccess') });
+      const dataToSave = {
+        ...data,
+        due_date: data.due_date?.toISOString().split('T')[0], // Format YYYY-MM-DD
+        tags: Array.isArray(data.tags) ? data.tags : (data.tags ? String(data.tags).split(',').map(s=>s.trim()).filter(Boolean) : []),
+      };
+      
+      // If created_by needs to be set on client (e.g. for immediate display, though backend should verify/set this)
+      // const currentUser = await User.me(); // This could be fetched higher up
+      // if (!dataToSave.id && currentUser) { // Only for new tasks
+      //   dataToSave.created_by = currentUser.email;
+      // }
+
+
+      let result;
+      if (defaultValues?.id) {
+        result = await Task.update(defaultValues.id, dataToSave);
+        toast({ title: t('tasks.updateSuccessTitle'), description: t('tasks.updateSuccessDetail', { name: data.title }) });
       } else {
-        savedTask = await Task.create(formData);
-        toast({ title: t('tasks.createSuccess') });
+        result = await Task.create(dataToSave);
+        toast({ title: t('tasks.createSuccessTitle'), description: t('tasks.createSuccessDetail', { name: data.title }) });
       }
-      if (onSuccess) onSuccess(savedTask);
-      return true;
+      if (onSubmitSuccess) onSubmitSuccess(result);
+      return result;
     } catch (error) {
       console.error("Error saving task:", error);
-      const errorMessage = error.response?.data?.detail || error.message || t('tasks.saveError');
-      toast({ variant: "destructive", title: t('tasks.saveError'), description: errorMessage });
-      return false;
-    } finally {
-      setIsSubmitting(false);
+      toast({
+        title: t('common.saveErrorTitle'),
+        description: error.message || t('common.saveErrorDetail', { entity: t('tasks.entityNameSingular') }),
+        variant: 'destructive',
+      });
+      throw error; // Re-throw to allow form to handle its state
     }
-  }, [formData, initialTask, onSuccess, t, toast, validate]);
+  });
 
-  return {
-    formData,
-    errors,
-    isSubmitting,
-    updateField,
-    handleSubmit,
-    resetForm,
-    statusOptions: DEFAULT_STATUS_OPTIONS,
-    priorityOptions: DEFAULT_PRIORITY_OPTIONS,
-    categoryOptions: DEFAULT_CATEGORY_OPTIONS
-  };
+  return { form, handleSubmit, isLoading: form.formState.isSubmitting };
 }

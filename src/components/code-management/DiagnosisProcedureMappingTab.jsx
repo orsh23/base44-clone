@@ -1,10 +1,12 @@
+
 import React, { useState, useEffect } from 'react';
     import { DiagnosisProcedureMapping } from '@/api/entities';
     import { MedicalCode } from '@/api/entities';
     import { useLanguageHook } from '@/components/useLanguageHook';
     import { useToast } from '@/components/ui/use-toast';
     import useCrudPage from '@/components/hooks/useCrudPage';
-    import DataTable from '@/components/shared/DataTable';
+// Corrected DataTable import path
+    import DataTable from '@/components/ui/data-table'; 
     import DiagnosisProcedureMappingDialog from './DiagnosisProcedureMappingDialog';
     import SearchFilterBar from '@/components/shared/SearchFilterBar';
     import { Button } from '@/components/ui/button';

@@ -1,292 +1,395 @@
 
 import React, { useMemo, useState, useCallback, useEffect } from 'react';
-import { City } from '@/api/entities';
+import { City } from '@/api/entities'; // Fixed: reverted to correct entity path
 import { useLanguageHook } from '@/components/useLanguageHook';
 import useEntityModule from '@/components/hooks/useEntityModule';
-import DataTable from '@/components/shared/DataTable';
+// Corrected DataTable import path
+import { DataTable } from '@/components/ui/data-table';
+import LoadingSpinner from '@/components/ui/loading-spinner';
+import EmptyState from '@/components/ui/empty-state';
+import ErrorDisplay from '@/components/common/ErrorDisplay';
 import CityDialog from './CityDialog';
-import SearchFilterBar from '@/components/shared/SearchFilterBar';
+import GlobalActionButton from '@/components/common/GlobalActionButton';
+import ViewSwitcher from '@/components/common/ViewSwitcher';
+import BulkSelectionModal from '@/components/shared/BulkSelectionModal';
 import { Button } from '@/components/ui/button';
-import ImportDialog from '@/components/common/ImportDialog';
-import { UploadCloud, Plus, Building } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { MapPin, Plus, Edit, Trash2, RefreshCw, Search, Building2, Globe } from 'lucide-react';
 import { useToast } from "@/components/ui/use-toast";
-import GlobalActionButton from '@/components/shared/GlobalActionButton';
-import ViewSwitcher from '@/components/shared/ViewSwitcher';
-import ErrorDisplay from '@/components/shared/ErrorDisplay';
-import LoadingSpinner from '@/components/shared/LoadingSpinner';
-import { loadFromStorage, saveToStorage } from '@/utils/localStorage';
+import ConfirmationDialog from '@/components/ui/confirmation-dialog';
 
-export default function CitiesTab({ globalActionsConfig: externalActionsConfig, currentView: passedView }) {
+export default function CitiesTab() {
   const { t, language, isRTL } = useLanguageHook();
   const { toast } = useToast();
+  const [currentView, setCurrentView] = useState('table');
+  const [showBulkModal, setShowBulkModal] = useState(false);
+  const [bulkAction, setBulkAction] = useState('');
+  const [confirmDialog, setConfirmDialog] = useState({ open: false, item: null });
 
   const entityConfig = useMemo(() => ({
     entitySDK: City,
-    entityName: t('cities.entityNameSingular', { defaultValue: 'City' }),
-    entityNamePlural: t('cities.titlePlural', { defaultValue: 'Cities' }),
+    entityName: t('addresses.city.singular', { defaultValue: 'City' }),
+    entityNamePlural: t('addresses.city.plural', { defaultValue: 'Cities' }),
     DialogComponent: CityDialog,
-    FormComponent: null, // DialogComponent handles the form logic
+    initialSort: [{ id: 'name_en', desc: false }],
     initialFilters: {
-      searchTerm: '', // For general search queries
-      customFilters: { // For specific field filters, matching original structure
-        name_en_cont: '',
-        name_he_cont: '',
-        code_cont: '',
-      },
-      sort: 'name_en', // Default sort as in original component
-      page: 1,
-      pageSize: 10,
+      searchTerm: '',
     },
-    // The `filterFunction` from the outline might be for client-side filtering.
-    // Given the original component used server-side filtering (via `_cont` suffixes),
-    // we assume `useEntityModule` is configured to map these filters to API requests.
-    storageKey: 'citiesView', // Key for persisting table state (e.g., sort, page size)
+    searchFields: ['name_en', 'name_he', 'code'],
+    filterFunction: (item, filters) => {
+      const term = filters.searchTerm?.toLowerCase();
+      if (term) {
+        if (!(
+          item.name_en?.toLowerCase().includes(term) ||
+          item.name_he?.toLowerCase().includes(term) ||
+          item.code?.toLowerCase().includes(term)
+        )) return false;
+      }
+      return true;
+    },
+    storageKey: 'citiesView',
   }), [t]);
 
   const {
-    items: cities, // Data items, aliased from 'items'
+    items: cities,
     loading,
     error,
-    filters, // Current filter state (includes searchTerm, customFilters, sort, page, pageSize)
-    setFilters, // Function to update filters
-    sortConfig, // Current sort configuration
-    setSortConfig, // Function to set sort configuration
-    pagination, // Pagination details (page, pageSize, totalItems, totalPages)
-    setPagination, // Function to set pagination
-    selectedItems, // Currently selected items for bulk actions
-    setSelectedItems, // Function to update selected items
-    isDialogOpen, // State for the entity dialog (e.g., CityDialog)
-    setIsDialogOpen, // Function to open/close entity dialog
-    currentItem, // The entity object currently being edited/viewed
-    setCurrentItem, // Function to set the current entity
-    handleRefresh: refreshCities, // Function to re-fetch data (replaces fetchItems)
-    handleSearch, // Function to handle general search input
-    handleFilterChange, // Generic function to handle changes to filters (e.g., custom filters)
-    handleSortChange, // Function to handle sort changes
-    handlePageChange, // Function to handle page number changes
-    handlePageSizeChange, // Function to handle page size changes
-    handleAddNew, // Function to open dialog for creating new item
-    handleEdit, // Function to open dialog for editing an item
-    handleDelete, // Function to delete a single item
-    handleBulkDelete, // Function to delete multiple selected items
-    isSelectionModeActive, // State indicating if selection mode is active
-    setIsSelectionModeActive, // Function to toggle selection mode
-    handleToggleSelection, // Function to toggle selection of a single item
-    handleSelectAll, // Function to select all items on current page
-    handleSelfSubmittingDialogClose, // Common handler to close dialogs that manage their own submission
-    // filteredAndSortedItems, // This would be used if `useEntityModule` performed client-side filtering
+    filters,
+    sortConfig,
+    selectedItems,
+    setSelectedItems,
+    isSelectionModeActive,
+    setIsSelectionModeActive,
+    isDialogOpen,
+    currentItem,
+    handleRefresh: refreshCities,
+    handleFilterChange,
+    handleSortChange,
+    handleAddNew,
+    handleEdit,
+    handleBulkDelete,
+    handleToggleSelection,
+    handleSelectAll,
+    handleSelfSubmittingDialogClose,
   } = useEntityModule(entityConfig);
 
-  const [currentView, setCurrentView] = useState(passedView || loadFromStorage('citiesView_viewPreference', 'table'));
+  // Filter cities based on current filters
+  const filteredCities = useMemo(() => {
+    if (!Array.isArray(cities)) return [];
+    return cities.filter(city => entityConfig.filterFunction(city, filters));
+  }, [cities, filters, entityConfig.filterFunction]);
 
-  useEffect(() => {
-    if (passedView) {
-      setCurrentView(passedView);
-      saveToStorage('citiesView_viewPreference', passedView);
-    }
-  }, [passedView]);
-
-  // Memoized global actions config, includes the `t` prop for translation keys.
-  const memoizedGlobalActionsConfig = useMemo(() => [
-    { labelKey: 'addresses.city.add', defaultLabel: 'Add City', icon: Plus, action: handleAddNew, type: 'add', t: t},
-    ...(externalActionsConfig || [])
-  ], [handleAddNew, externalActionsConfig, t]);
-
-  const handleEditWithSelectionCheck = useCallback(() => {
-    if (selectedItems.length === 1) {
-      handleEdit(selectedItems[0]); // Pass the single selected item to handleEdit
-      setIsSelectionModeActive(false); // Exit selection mode after action
-    } else if (selectedItems.length === 0) {
-      toast({
-        title: t('common.noItemSelected', { defaultValue: "No Item Selected" }),
-        description: t('common.selectOneToEdit', { defaultValue: "Please select one item to edit." }),
-        variant: "warning",
-      });
-    } else {
-      toast({
-        title: t('common.multipleItemsSelected', { defaultValue: "Multiple Items Selected" }),
-        description: t('common.selectOneToEdit', { defaultValue: "Please select only one item to edit." }),
-        variant: "warning",
-      });
-    }
-  }, [selectedItems, handleEdit, setIsSelectionModeActive, t, toast]);
-
-  const handleDeleteWithSelectionCheck = useCallback(() => {
-    if (selectedItems.length > 0) {
-      handleBulkDelete(selectedItems.map(item => item.id)); // Assuming handleBulkDelete takes an array of IDs
-      setIsSelectionModeActive(false); // Exit selection mode after action
-    } else {
-      toast({
-        title: t('common.noItemSelected', { defaultValue: "No Item Selected" }),
-        description: t('common.selectItemsToDelete', { defaultValue: "Please select items to delete." }),
-        variant: "warning",
-      });
-    }
-  }, [selectedItems, handleBulkDelete, setIsSelectionModeActive, t, toast]);
-
-  const handleCancelSelectionMode = useCallback(() => {
-    setIsSelectionModeActive(false);
-    setSelectedItems([]); // Clear selected items
-  }, [setIsSelectionModeActive, setSelectedItems]);
-
+  // Columns for table view
   const columns = useMemo(() => [
-    { accessorKey: 'name_en', header: t('fields.nameEn', { defaultValue: 'Name (English)' }), sortable: true },
-    { accessorKey: 'name_he', header: t('fields.nameHe', { defaultValue: 'Name (Hebrew)' }), sortable: true },
-    { accessorKey: 'code', header: t('fields.code', { defaultValue: 'Code' }), sortable: true },
     {
-      id: 'actions',
-      header: t('common.actions', { defaultValue: 'Actions' }),
+      accessorKey: 'name_en',
+      header: t('addresses.city.nameEn', { defaultValue: 'Name (EN)' }),
+      enableSorting: true,
       cell: ({ row }) => (
-        <div className="space-x-2">
-          <Button variant="outline" size="sm" onClick={() => handleEdit(row.original)}>{t('buttons.edit', { defaultValue: 'Edit' })}</Button>
-          <Button variant="destructive" size="sm" onClick={() => handleDelete(row.original.id)}>{t('buttons.delete', { defaultValue: 'Delete' })}</Button>
+        <div className="flex items-center gap-2">
+          <Globe className="w-4 h-4 text-blue-500" />
+          <span className="font-medium">{row.original.name_en}</span>
         </div>
       ),
     },
-  ], [t, handleEdit, handleDelete, language]); // 'language' is not directly used but might be part of memoization dependency array for translation changes.
+    {
+      accessorKey: 'name_he',
+      header: t('addresses.city.nameHe', { defaultValue: 'Name (HE)' }),
+      enableSorting: true,
+      cell: ({ row }) => (
+        <div className="flex items-center gap-2">
+          <Globe className="w-4 h-4 text-green-500" />
+          <span className="font-medium">{row.original.name_he}</span>
+        </div>
+      ),
+    },
+    {
+      accessorKey: 'code',
+      header: t('addresses.city.code', { defaultValue: 'Code' }),
+      enableSorting: true,
+      cell: ({ row }) => (
+        row.original.code ? (
+          <Badge variant="outline">{row.original.code}</Badge>
+        ) : (
+          <span className="text-gray-400">{t('common.notSet', { defaultValue: 'N/A' })}</span>
+        )
+      ),
+    },
+    {
+      accessorKey: 'actions',
+      header: t('common.actions', { defaultValue: 'Actions' }),
+      enableSorting: false,
+      cell: ({ row }) => (
+        <div className="flex items-center gap-2">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => handleEdit(row.original)}
+          >
+            <Edit className="w-4 h-4" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setConfirmDialog({ open: true, item: row.original })}
+          >
+            <Trash2 className="w-4 h-4" />
+          </Button>
+        </div>
+      ),
+    },
+  ], [t, handleEdit]);
 
-  const filterFields = [
-    { name: 'name_en_cont', label: t('fields.nameEn', { defaultValue: 'Name (EN)' }), type: 'text', value: filters.customFilters?.name_en_cont || '' },
-    { name: 'name_he_cont', label: t('fields.nameHe', { defaultValue: 'Name (HE)' }), type: 'text', value: filters.customFilters?.name_he_cont || '' },
-    { name: 'code_cont', label: t('fields.code', { defaultValue: 'Code' }), type: 'text', value: filters.customFilters?.code_cont || '' },
-  ];
-  
-  // Import dialog state and handlers (these are specific to CitiesTab and not part of useEntityModule)
-  const [isImportDialogOpen, setIsImportDialogOpen] = useState(false);
-  const openImportDialog = useCallback(() => setIsImportDialogOpen(true), []);
-  const closeImportDialog = useCallback(() => setIsImportDialogOpen(false), []);
+  // Handle selection mode
+  const handleStartSelectionMode = useCallback((action) => {
+    setBulkAction(action);
+    setIsSelectionModeActive(true);
+    setSelectedItems([]);
+  }, [setIsSelectionModeActive, setSelectedItems]);
 
-  const handleImportSubmit = async (records) => {
-    if (!records || records.length === 0) {
-      toast({ title: t('import.noRecordsTitle', {defaultValue: "No Records to Import"}), description: t('import.noRecordsDesc', {defaultValue: "The file has no records or could not be parsed."}), variant: "warning" });
-      return;
+  const handleCancelSelectionMode = useCallback(() => {
+    setIsSelectionModeActive(false);
+    setSelectedItems([]);
+    setBulkAction('');
+  }, [setIsSelectionModeActive, setSelectedItems]);
+
+  const handleBulkAction = useCallback(async () => {
+    if (selectedItems.length === 0) return;
+
+    if (bulkAction === 'delete') {
+      setShowBulkModal(true);
     }
+  }, [selectedItems, bulkAction]);
 
-    // Map Excel/CSV headers to entity properties
-    const citiesToCreate = records.map(record => ({
-      name_en: record['Name (English)'] || record['name_en'] || record['Name EN'],
-      name_he: record['Name (Hebrew)'] || record['name_he'] || record['Name HE'],
-      code: record['Code'] || record['code'],
-    })).filter(city => city.name_en && city.name_he); // Basic validation
+  const handleConfirmBulkDelete = useCallback(async () => {
+    const result = await handleBulkDelete(selectedItems);
+    
+    toast({
+      title: t('bulkActions.deleteResultTitle', { defaultValue: 'Deletion Summary' }),
+      description: t('bulkActions.deleteResultDesc', {
+        defaultValue: 'Successfully deleted {{successCount}} cities, failed to delete {{failCount}}.',
+        successCount: result.successCount,
+        failCount: result.failCount,
+        entity: t('addresses.city.plural', { defaultValue: 'cities' })
+      }),
+      variant: result.failCount > 0 ? 'warning' : 'default'
+    });
 
-    if (citiesToCreate.length === 0) {
-        toast({ title: t('import.noValidRecordsTitle', {defaultValue: "No Valid Records"}), description: t('import.noValidRecordsDesc', {defaultValue: "No valid city records found in the file. Ensure 'Name (English)' and 'Name (Hebrew)' are present."}), variant: "warning" });
-        return;
+    setShowBulkModal(false);
+    handleCancelSelectionMode();
+  }, [handleBulkDelete, selectedItems, toast, t, handleCancelSelectionMode]);
+
+  const handleSingleDelete = useCallback(async () => {
+    if (!confirmDialog.item) return;
+    
+    const result = await handleBulkDelete([confirmDialog.item.id]);
+    
+    if (result.successCount > 0) {
+      toast({
+        title: t('common.deleteSuccess', { defaultValue: 'Item deleted successfully.' }),
+        variant: 'default'
+      });
+    } else {
+      toast({
+        title: t('common.deleteError', { defaultValue: 'Failed to delete item.' }),
+        variant: 'destructive'
+      });
     }
+    
+    setConfirmDialog({ open: false, item: null });
+  }, [confirmDialog.item, handleBulkDelete, toast, t]);
 
-    try {
-      await City.bulkCreate(citiesToCreate);
-      toast({ title: t('import.successTitle', {defaultValue: "Import Successful"}), description: t('import.citiesSuccessDesc', {count: citiesToCreate.length, defaultValue: `${citiesToCreate.length} cities imported successfully.`})});
-      refreshCities(); // Refresh list (changed from fetchItems)
-      closeImportDialog();
-    } catch (importError) {
-      console.error("Error bulk creating cities:", importError);
-      toast({ title: t('import.errorTitle', {defaultValue: "Import Failed"}), description: importError.message || t('import.genericErrorDesc', {defaultValue: "An unexpected error occurred during import."}), variant: "destructive" });
-    }
-  };
+  // Card view component
+  const CityCard = useCallback(({ city }) => (
+    <Card className="hover:shadow-md transition-shadow">
+      <CardHeader className="pb-2">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <MapPin className="w-5 h-5 text-blue-500" />
+            <CardTitle className="text-lg">{city.name_en}</CardTitle>
+          </div>
+          {isSelectionModeActive && (
+            <Checkbox
+              checked={selectedItems.includes(city.id)}
+              onCheckedChange={(checked) => handleToggleSelection(city.id)}
+            />
+          )}
+        </div>
+      </CardHeader>
+      <CardContent>
+        <div className="space-y-2">
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-gray-500">{t('addresses.city.nameHe', { defaultValue: 'Hebrew:' })}</span>
+            <span className="font-medium">{city.name_he}</span>
+          </div>
+          {city.code && (
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-gray-500">{t('addresses.city.code', { defaultValue: 'Code:' })}</span>
+              <Badge variant="outline">{city.code}</Badge>
+            </div>
+          )}
+          <div className="flex justify-end gap-2 mt-4">
+            <Button variant="ghost" size="sm" onClick={() => handleEdit(city)}>
+              <Edit className="w-4 h-4" />
+            </Button>
+            <Button 
+              variant="ghost" 
+              size="sm" 
+              onClick={() => setConfirmDialog({ open: true, item: city })}
+            >
+              <Trash2 className="w-4 h-4" />
+            </Button>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  ), [t, isSelectionModeActive, selectedItems, handleToggleSelection, handleEdit]);
 
-  const renderContent = () => {
-    if (loading) {
-      return <LoadingSpinner />;
-    }
-    if (error) {
-      return <ErrorDisplay errorMessage={error.message} onRetry={refreshCities} />;
-    }
-
-    return (
-      <DataTable
-        columns={columns}
-        data={cities} // 'cities' comes from useEntityModule's 'items'
-        loading={loading}
-        error={error} // Passed for potential internal error handling in DataTable
-        onRetry={refreshCities}
-        pagination={{ // Pass pagination details to DataTable
-          page: pagination.page,
-          pageSize: pagination.pageSize,
-          totalItems: pagination.totalItems,
-        }}
-        onPageChange={handlePageChange}
-        onPageSizeChange={handlePageSizeChange}
-        entityName={t('cities.titlePlural', { defaultValue: 'Cities' })}
-        isSelectionModeActive={isSelectionModeActive}
-        selectedItems={selectedItems}
-        onToggleSelection={handleToggleSelection}
-        onSelectAll={handleSelectAll}
-      />
-    );
-  };
+  if (error) {
+    return <ErrorDisplay errorMessage={error} onRetry={refreshCities} t={t} isRTL={isRTL} />;
+  }
 
   return (
-    <div className="space-y-4">
-      <div className="flex flex-col sm:flex-row items-center justify-between gap-2 sticky top-[var(--subheader-height,0px)] bg-background dark:bg-gray-900 py-3 z-10 -mx-1 px-1 md:mx-0 md:px-0 border-b dark:border-gray-700">
-        <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-100 flex items-center">
-          <Building className={`h-5 w-5 ${isRTL ? 'ml-2' : 'mr-2'} text-gray-600 dark:text-gray-400`} />
-          {t('cities.titlePlural', { defaultValue: 'Cities' })} ({pagination.totalItems || 0})
-        </h3>
+    <div className="space-y-6">
+      {/* Header Actions */}
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+        <div className="flex items-center gap-4">
+          <ViewSwitcher currentView={currentView} onViewChange={setCurrentView} />
+          <div className="flex items-center gap-2">
+            <Input
+              placeholder={t('addresses.city.searchPlaceholder', { defaultValue: 'Search cities...' })}
+              value={filters.searchTerm}
+              onChange={(e) => handleFilterChange('searchTerm', e.target.value)}
+              className="w-64"
+            />
+            <Search className="w-4 h-4 text-gray-400" />
+          </div>
+        </div>
+
         <div className="flex items-center gap-2">
-            <GlobalActionButton
-                actionsConfig={memoizedGlobalActionsConfig}
-                onEditItems={handleEditWithSelectionCheck}
-                onDeleteItems={handleDeleteWithSelectionCheck}
-                isSelectionModeActive={isSelectionModeActive}
-                onCancelSelectionMode={handleCancelSelectionMode}
-                selectedItemCount={selectedItems.length}
-                itemTypeForActions={t('addresses.city.singular', { defaultValue: 'City' })}
-                t={t} {/* ADDED t PROP */}
-              />
-            <Button variant="outline" onClick={refreshCities}>
-                {t('common.refresh', { defaultValue: 'Refresh' })}
-            </Button>
-            <ViewSwitcher
-              currentView={currentView}
-              onViewChange={setCurrentView}
-              storageKey="citiesView_viewPreference"
+          {isSelectionModeActive ? (
+            <BulkSelectionModal
+              isOpen={isSelectionModeActive}
+              onConfirm={handleBulkAction}
+              onCancel={handleCancelSelectionMode}
+              selectedItemCount={selectedItems.length}
+              itemTypeForActions={t('addresses.city.singular', { defaultValue: 'City' })}
               t={t}
             />
+          ) : (
+            <GlobalActionButton
+              actions={[
+                {
+                  key: 'add',
+                  label: t('buttons.add', { defaultValue: 'Add City' }),
+                  icon: Plus,
+                  onClick: handleAddNew,
+                  variant: 'default'
+                },
+                {
+                  key: 'bulk_delete',
+                  label: t('buttons.bulkDelete', { defaultValue: 'Bulk Delete' }),
+                  icon: Trash2,
+                  onClick: () => handleStartSelectionMode('delete'),
+                  variant: 'destructive'
+                }
+              ]}
+              t={t}
+            />
+          )}
+          <Button variant="outline" onClick={refreshCities}>
+            <RefreshCw className="w-4 h-4 mr-2" />
+            {t('common.refresh', { defaultValue: 'Refresh' })}
+          </Button>
         </div>
       </div>
 
-      <SearchFilterBar
-        searchQuery={filters.searchTerm || ''} // Use searchTerm from filters
-        onSearchChange={(value) => handleSearch(value)} // Update searchTerm
-        onFilterChange={handleFilterChange} // For custom filters
-        onSortChange={handleSortChange} // For sorting
-        currentSort={filters.sort} // Current sort from filters
-        sortOptions={[
-            { value: 'name_en', label: t('fields.nameEn', { defaultValue: 'Name (English)'}) },
-            { value: '-name_en', label: t('fields.nameEn', { defaultValue: 'Name (English)'}) + ` (${t('sort.desc', {defaultValue: 'Desc'})})` },
-            { value: 'name_he', label: t('fields.nameHe', { defaultValue: 'Name (Hebrew)'}) },
-            { value: '-name_he', label: t('fields.nameHe', { defaultValue: 'Name (Hebrew)'}) + ` (${t('sort.desc', {defaultValue: 'Desc'})})` },
-        ]}
-        filterFields={filterFields} // Uses filters.customFilters values
-        onAddNew={handleAddNew} // From useEntityModule
-        addNewButtonText={t('cities.addNew', {defaultValue: 'New City'})}
-        additionalActions={
-          <Button variant="outline" onClick={openImportDialog}>
-            <UploadCloud className="mr-2 h-4 w-4" />
-            {t('import.importButton', {entity: t('cities.titlePlural', {defaultValue: 'Cities'}), defaultValue: `Import ${t('cities.titlePlural', {defaultValue: 'Cities'})}`})}
-          </Button>
-        }
-      />
-      {renderContent()} {/* Renders DataTable, LoadingSpinner, or ErrorDisplay */}
-
-      {isDialogOpen && ( // Controlled by useEntityModule's isDialogOpen
-        <CityDialog
-          isOpen={isDialogOpen}
-          onClose={handleSelfSubmittingDialogClose} // Use useEntityModule's handler for closing
-          onSubmit={handleSelfSubmittingDialogClose} // Submitting the form will likely trigger a refresh and then close via this handler
-          city={currentItem} // The entity object being edited/created
+      {/* Content */}
+      {loading ? (
+        <LoadingSpinner message={t('messages.loadingData', { item: t('addresses.city.plural', { defaultValue: 'cities' }) })} />
+      ) : filteredCities.length === 0 ? (
+        <EmptyState
+          title={t('addresses.city.noCitiesTitle', { defaultValue: 'No Cities Found' })}
+          description={filters.searchTerm ? 
+            t('addresses.city.noCitiesFilterDesc', { defaultValue: 'No cities match your search criteria.' }) :
+            t('addresses.city.noCitiesDesc', { defaultValue: 'Start by adding a new city.' })
+          }
+          icon={MapPin}
+          action={{
+            label: t('buttons.addCity', { defaultValue: 'Add City' }),
+            onClick: handleAddNew
+          }}
+        />
+      ) : currentView === 'table' ? (
+        <DataTable
+          columns={columns}
+          data={filteredCities}
+          loading={loading}
+          error={error}
+          onRetry={refreshCities}
+          entityName={t('addresses.city.plural', { defaultValue: 'cities' })}
+          emptyMessage={t('addresses.city.noCitiesTitle', { defaultValue: 'No cities found' })}
+          onRowClick={!isSelectionModeActive ? ({ original }) => handleEdit(original) : undefined}
+          isSelectionModeActive={isSelectionModeActive}
+          selectedRowIds={new Set(selectedItems)}
+          onRowSelectionChange={handleToggleSelection}
+          onSelectAllRows={(checked) => {
+            if (checked) {
+              handleSelectAll(filteredCities.map(city => city.id));
+            } else {
+              handleSelectAll([]);
+            }
+          }}
+          currentSort={sortConfig}
+          onSortChange={handleSortChange}
           t={t}
         />
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {filteredCities.map((city) => (
+            <CityCard key={city.id} city={city} />
+          ))}
+        </div>
       )}
-      {isImportDialogOpen && (
-        <ImportDialog
-            isOpen={isImportDialogOpen}
-            onClose={closeImportDialog}
-            onImportSubmit={handleImportSubmit}
-            entityName={t('cities.titlePlural', { defaultValue: 'Cities' })}
-            sampleHeaders={['Name (English)', 'Name (Hebrew)', 'Code']}
-            t={t}
+
+      {/* Dialogs */}
+      {isDialogOpen && (
+        <CityDialog
+          city={currentItem}
+          open={isDialogOpen}
+          onClose={handleSelfSubmittingDialogClose}
+        />
+      )}
+
+      {showBulkModal && (
+        <ConfirmationDialog
+          open={showBulkModal}
+          onClose={() => setShowBulkModal(false)}
+          onConfirm={handleConfirmBulkDelete}
+          title={t('common.confirmDeleteTitle', { 
+            item: t('addresses.city.plural', { defaultValue: 'Cities' }),
+            count: selectedItems.length 
+          })}
+          description={t('common.confirmDeleteDescription', {
+            item: `${selectedItems.length} ${t('addresses.city.plural', { defaultValue: 'cities' })}`,
+            count: selectedItems.length
+          })}
+        />
+      )}
+
+      {confirmDialog.open && (
+        <ConfirmationDialog
+          open={confirmDialog.open}
+          onClose={() => setConfirmDialog({ open: false, item: null })}
+          onConfirm={handleSingleDelete}
+          title={t('common.confirmDelete', { defaultValue: 'Confirm Delete' })}
+          description={t('addresses.city.deleteConfirm', {
+            defaultValue: 'Are you sure you want to delete "{{name}}"?',
+            name: confirmDialog.item?.name_en
+          })}
         />
       )}
     </div>

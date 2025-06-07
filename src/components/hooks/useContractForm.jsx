@@ -1,174 +1,108 @@
-import { useState, useEffect, useCallback } from 'react';
-import { useToast } from '@/components/ui/use-toast';
+// Content of components/hooks/useContractForm.js
+import { useForm, useFieldArray } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import * as z from 'zod';
 import { Contract } from '@/api/entities';
-import { Provider } from '@/api/entities'; // For provider selection
-import { useLanguage } from '../context/LanguageContext';
-import { CONTRACT_STATUSES, PAYMENT_METHODS } from '@/components/utils/constants';
-import { formatDateForInput, parseDateFromInput } from '@/components/utils/date-utils'; // For date handling
+import { useToast } from '@/components/ui/use-toast';
+import { useLanguageHook } from '@/components/useLanguageHook';
 
-export function useContractForm(initialContract = null, onSuccess) {
-  const { t } = useLanguage();
+const getScopeRuleSchema = (t) => z.object({
+  scope_type: z.enum(['all_codes', 'category', 'specific_codes']),
+  category_path: z.string().optional().nullable(),
+  codes: z.array(z.string()).optional().default([]),
+});
+
+const getContractSchema = (t) => z.object({
+  provider_id: z.string().min(1, { message: t('validation.requiredField', { fieldName: t('fields.provider', { defaultValue: 'Provider' }) }) }),
+  contract_number: z.string().min(1, { message: t('validation.requiredField', { fieldName: t('fields.contractNumber', { defaultValue: 'Contract Number' }) }) }),
+  name_en: z.string().min(1, { message: t('validation.requiredField', { fieldName: t('fields.nameEn', { defaultValue: 'Name (EN)' }) }) }),
+  name_he: z.string().min(1, { message: t('validation.requiredField', { fieldName: t('fields.nameHe', { defaultValue: 'Name (HE)' }) }) }),
+  valid_from: z.date({ required_error: t('validation.requiredField', { fieldName: t('fields.validFrom', { defaultValue: 'Valid From' }) }) }),
+  valid_to: z.date({ required_error: t('validation.requiredField', { fieldName: t('fields.validTo', { defaultValue: 'Valid To' }) }) }),
+  status: z.enum(['draft', 'active', 'expired', 'terminated']).default('draft'),
+  scope_rules: z.array(getScopeRuleSchema(t)).optional().default([]),
+  payment_terms: z.object({
+    payment_days: z.coerce.number().int().min(0).optional().nullable(),
+    requires_invoice: z.boolean().default(true).optional(),
+    payment_method: z.enum(['direct_deposit', 'check', 'credit']).optional().nullable(),
+  }).optional(),
+  special_conditions: z.array(z.string()).optional().default([]),
+}).refine(data => data.valid_from <= data.valid_to, {
+  message: t('contracts.validation.validToAfterFrom', { defaultValue: "Valid To date must be after or same as Valid From date." }),
+  path: ['valid_to'],
+});
+
+export function useContractForm(defaultValues, onSubmitSuccess) {
+  const { t } = useLanguageHook();
   const { toast } = useToast();
-  
-  const getInitialState = () => ({
-    provider_id: '',
-    contract_number: '',
-    name_en: '',
-    name_he: '',
-    valid_from: '', // Store as YYYY-MM-DD string
-    valid_to: '',   // Store as YYYY-MM-DD string
-    status: CONTRACT_STATUSES[0]?.value || 'draft',
-    scope_rules: [], // This will be complex, handle separately or in a sub-form
-    payment_terms: {
-      payment_days: 30,
-      requires_invoice: true,
-      payment_method: PAYMENT_METHODS[0]?.value || 'direct_deposit'
+  const contractSchema = getContractSchema(t);
+
+  const form = useForm({
+    resolver: zodResolver(contractSchema),
+    defaultValues: defaultValues ? {
+      ...defaultValues,
+      valid_from: defaultValues.valid_from ? new Date(defaultValues.valid_from) : null,
+      valid_to: defaultValues.valid_to ? new Date(defaultValues.valid_to) : null,
+      scope_rules: defaultValues.scope_rules || [],
+      payment_terms: defaultValues.payment_terms || { requires_invoice: true },
+      special_conditions: defaultValues.special_conditions || [],
+    } : {
+      status: 'draft',
+      scope_rules: [],
+      payment_terms: { requires_invoice: true },
+      special_conditions: [],
     },
-    special_conditions: [], // Array of strings
-    ...(initialContract ? {
-        ...initialContract,
-        valid_from: initialContract.valid_from ? formatDateForInput(initialContract.valid_from) : '',
-        valid_to: initialContract.valid_to ? formatDateForInput(initialContract.valid_to) : '',
-        payment_terms: {
-            ...(initialState.payment_terms), // Ensure defaults
-            ...(initialContract.payment_terms || {})
-        },
-        scope_rules: initialContract.scope_rules || [],
-        special_conditions: initialContract.special_conditions || [],
-    } : {})
   });
-  
-  const [formData, setFormData] = useState(getInitialState());
-  const [errors, setErrors] = useState({});
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [providers, setProviders] = useState([]); // For provider dropdown
 
-  // Fetch providers for dropdown
-  useEffect(() => {
-    const fetchProviders = async () => {
-        try {
-            const providerList = await Provider.list('name.en'); // Sort by name
-            setProviders(providerList || []);
-        } catch (error) {
-            console.error("Error fetching providers for contract form:", error);
-            // Optionally show a toast or set an error state for the dropdown
-        }
-    };
-    fetchProviders();
-  }, []);
-  
-  useEffect(() => {
-    setFormData(getInitialState());
-  }, [initialContract]);
-  
-  const updateField = useCallback((field, value) => {
-    setFormData(prev => ({ ...prev, [field]: value }));
-    if (Object.prototype.hasOwnProperty.call(errors, field)) {
-      setErrors(prev => ({ ...prev, [field]: null }));
-    }
-  }, [errors]);
-  
-  const updateNestedField = useCallback((parent, field, value) => {
-    setFormData(prev => ({
-      ...prev,
-      [parent]: { ...(prev[parent] || {}), [field]: value }
-    }));
-    if (Object.prototype.hasOwnProperty.call(errors, parent) && 
-        errors[parent] && Object.prototype.hasOwnProperty.call(errors[parent], field)) {
-      setErrors(prev => ({
-        ...prev,
-        [parent]: { ...(prev[parent] || {}), [field]: null }
-      }));
-    }
-  }, [errors]);
+  const { fields: scopeRulesFields, append: appendScopeRule, remove: removeScopeRule } = useFieldArray({
+    control: form.control,
+    name: "scope_rules",
+  });
 
-  const handleListChange = useCallback((field, newList) => {
-    setFormData(prev => ({ ...prev, [field]: newList }));
-  }, []);
-  
-  const validate = useCallback(() => {
-    const newErrors = {};
-    if (!formData.provider_id) {
-      newErrors.provider_id = t('validation.required', { field: t('contracts.provider') });
-    }
-    if (!formData.contract_number?.trim()) {
-      newErrors.contract_number = t('validation.required', { field: t('contracts.contractNumber') });
-    }
-    if (!formData.name_en?.trim() && !formData.name_he?.trim()) {
-      newErrors.name_en = t('validation.requiredEither', { field: t('contracts.name') });
-    }
-    if (!formData.valid_from) {
-      newErrors.valid_from = t('validation.required', { field: t('contracts.startDate') });
-    }
-    if (!formData.valid_to) {
-      newErrors.valid_to = t('validation.required', { field: t('contracts.endDate') });
-    }
-    if (formData.valid_from && formData.valid_to && parseDateFromInput(formData.valid_from) > parseDateFromInput(formData.valid_to)) {
-      newErrors.valid_to = t('validation.endAfterStart');
-    }
-    if (formData.payment_terms?.payment_days && (parseInt(formData.payment_terms.payment_days, 10) < 0 || isNaN(parseInt(formData.payment_terms.payment_days, 10)))) {
-        if(!newErrors.payment_terms) newErrors.payment_terms = {};
-        newErrors.payment_terms.payment_days = t('validation.positiveNumber', { field: t('contracts.paymentDays')});
-    }
+  const { fields: specialConditionsFields, append: appendSpecialCondition, remove: removeSpecialCondition } = useFieldArray({
+    control: form.control,
+    name: "special_conditions",
+  });
 
-    setErrors(newErrors);
-    return Object.keys(newErrors).length === 0;
-  }, [formData, t]);
-  
-  const resetForm = useCallback(() => {
-    setFormData(getInitialState());
-    setErrors({});
-  }, [initialContract]);
-  
-  const handleSubmit = useCallback(async (event) => {
-    if (event) event.preventDefault();
-    if (!validate()) return false;
 
-    setIsSubmitting(true);
+  const handleSubmit = form.handleSubmit(async (data) => {
     try {
-      let savedContract;
       const dataToSave = {
-        ...formData,
-        // Ensure dates are correctly formatted if needed by backend, though entity SDK might handle it
-        // payment_terms.payment_days should be a number
-        payment_terms: {
-            ...formData.payment_terms,
-            payment_days: parseInt(formData.payment_terms.payment_days, 10) || 0
-        }
+        ...data,
+        valid_from: data.valid_from?.toISOString().split('T')[0], // Format YYYY-MM-DD
+        valid_to: data.valid_to?.toISOString().split('T')[0],
       };
 
-      if (initialContract?.id) {
-        savedContract = await Contract.update(initialContract.id, dataToSave);
-        toast({ title: t('contracts.updateSuccess') });
+      let result;
+      if (defaultValues?.id) {
+        result = await Contract.update(defaultValues.id, dataToSave);
+        toast({ title: t('contracts.updateSuccessTitle'), description: t('contracts.updateSuccessDetail', { name: data.name_en || data.contract_number }) });
       } else {
-        savedContract = await Contract.create(dataToSave);
-        toast({ title: t('contracts.createSuccess') });
+        result = await Contract.create(dataToSave);
+        toast({ title: t('contracts.createSuccessTitle'), description: t('contracts.createSuccessDetail', { name: data.name_en || data.contract_number }) });
       }
-      if (onSuccess) onSuccess(savedContract);
-      return true;
+      if (onSubmitSuccess) onSubmitSuccess(result);
+      return result;
     } catch (error) {
       console.error("Error saving contract:", error);
-      toast({ variant: "destructive", title: t('contracts.saveError'), description: error.message });
-      // Potentially parse error for specific field issues from backend
-      if (error.details && typeof error.details === 'object') {
-        setErrors(prev => ({ ...prev, ...error.details }));
-      }
-      return false;
-    } finally {
-      setIsSubmitting(false);
+      toast({
+        title: t('common.saveErrorTitle'),
+        description: error.message || t('common.saveErrorDetail', { entity: t('contracts.entityNameSingular') }),
+        variant: 'destructive',
+      });
+      throw error; // Re-throw to indicate submission failure
     }
-  }, [formData, initialContract, onSuccess, t, toast, validate]);
+  });
 
   return {
-    formData,
-    errors,
-    isSubmitting,
-    providers, // Expose providers for dropdown
-    updateField,
-    updateNestedField,
-    handleListChange, // For special_conditions
+    form,
     handleSubmit,
-    resetForm,
-    validate
+    isLoading: form.formState.isSubmitting,
+    scopeRulesFields,
+    appendScopeRule,
+    removeScopeRule,
+    specialConditionsFields,
+    appendSpecialCondition,
+    removeSpecialCondition,
   };
 }

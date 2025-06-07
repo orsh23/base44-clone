@@ -1,7 +1,9 @@
+
 import { useState, useEffect, useCallback } from 'react';
-import { Material } from '@/api/entities';
-import { Manufacturer } from '@/api/entities';
-import { Supplier } from '@/api/entities';
+import setNestedValue from '@/components/utils/setNestedValue'; // Fixed import path
+import { Material } from '@/api/entities'; // Fixed import path  
+import { Manufacturer } from '@/api/entities'; // Fixed import path
+import { Supplier } from '@/api/entities'; // Fixed import path
 import { useLanguageHook } from '@/components/useLanguageHook'; // Corrected import
 
 export function useMaterialForm({ initialData, onSubmit, onCloseDialog }) {
@@ -23,7 +25,7 @@ export function useMaterialForm({ initialData, onSubmit, onCloseDialog }) {
     is_active: true,
   };
 
-  const [formData, setFormData] = useState(initialData ? 
+  const [formData, setFormData] = useState(initialData ?
     {
       ...defaultFormData,
       ...initialData,
@@ -31,7 +33,7 @@ export function useMaterialForm({ initialData, onSubmit, onCloseDialog }) {
       tags: Array.isArray(initialData.tags) ? initialData.tags : [],
       manufacturers: Array.isArray(initialData.manufacturers) ? initialData.manufacturers.map(m => ({ ...m })) : [],
       suppliers: Array.isArray(initialData.suppliers) ? initialData.suppliers.map(s => ({ ...s, price_per_unit: s.price_per_unit !== undefined && s.price_per_unit !== null ? String(s.price_per_unit) : '' })) : [],
-    } 
+    }
     : defaultFormData
   );
   const [allManufacturers, setAllManufacturers] = useState([]);
@@ -56,7 +58,6 @@ export function useMaterialForm({ initialData, onSubmit, onCloseDialog }) {
     fetchRelatedData();
   }, []);
 
-
   useEffect(() => {
     if (initialData) {
       setFormData({
@@ -77,7 +78,7 @@ export function useMaterialForm({ initialData, onSubmit, onCloseDialog }) {
     if (!formData.name_en.trim()) newErrors.name_en = t('validation.required', { field: t('materials.nameEn') });
     if (!formData.name_he.trim()) newErrors.name_he = t('validation.required', { field: t('materials.nameHe') });
     if (!formData.unit_of_measure) newErrors.unit_of_measure = t('validation.required', { field: t('materials.unit') });
-    
+
     if (formData.base_price && isNaN(parseFloat(formData.base_price))) {
       newErrors.base_price = t('validation.number', { field: t('materials.basePrice') });
     } else if (formData.base_price && parseFloat(formData.base_price) < 0) {
@@ -93,7 +94,7 @@ export function useMaterialForm({ initialData, onSubmit, onCloseDialog }) {
         newErrors.suppliers[index] = { ...(newErrors.suppliers[index] || {}), price_per_unit: t('validation.positiveNumber', { field: t('materials.pricePerUnit') }) };
       }
       if (!supplier.name) { // Assuming name is a required field for a supplier entry
-         if (!newErrors.suppliers) newErrors.suppliers = [];
+        if (!newErrors.suppliers) newErrors.suppliers = [];
         newErrors.suppliers[index] = { ...(newErrors.suppliers[index] || {}), name: t('validation.required', { field: t('materials.supplierName') }) };
       }
     });
@@ -147,48 +148,7 @@ export function useMaterialForm({ initialData, onSubmit, onCloseDialog }) {
   };
 
   const updateField = (path, value) => {
-    setFormData(prev => {
-      const keys = path.split('.');
-      let current = { ...prev };
-      let obj = current;
-  
-      for (let i = 0; i < keys.length - 1; i++) {
-        const key = keys[i];
-        const nextKeyIsArray = /\[\d+\]/.test(keys[i+1]);
-        const arrayMatch = key.match(/(\w+)\[(\d+)\]/);
-  
-        if (arrayMatch) {
-          const arrayName = arrayMatch[1];
-          const index = parseInt(arrayMatch[2]);
-          if (!obj[arrayName] || !Array.isArray(obj[arrayName])) {
-            obj[arrayName] = []; // Initialize if not an array
-          }
-          // Ensure the array is long enough
-          while (obj[arrayName].length <= index) {
-            obj[arrayName].push(nextKeyIsArray ? [] : {}); 
-          }
-          obj[arrayName][index] = obj[arrayName][index] ? { ...obj[arrayName][index] } : (nextKeyIsArray ? [] : {});
-          obj = obj[arrayName][index];
-        } else {
-          obj[key] = obj[key] ? { ...obj[key] } : (nextKeyIsArray ? [] : {});
-          obj = obj[key];
-        }
-      }
-      
-      const finalKey = keys[keys.length - 1];
-      const finalKeyArrayMatch = finalKey.match(/(\w+)\[(\d+)\]/);
-      if (finalKeyArrayMatch) {
-          const arrayName = finalKeyArrayMatch[1];
-          const index = parseInt(finalKeyArrayMatch[2]);
-           if (!obj[arrayName] || !Array.isArray(obj[arrayName])) {
-            obj[arrayName] = [];
-          }
-          obj[arrayName][index] = value;
-      } else {
-        obj[finalKey] = value;
-      }
-      return current;
-    });
+    setFormData(prev => setNestedValue(prev, path, value));
     // Clear specific error when field is updated
     setErrors(prevErrors => {
         const newErrors = {...prevErrors};
@@ -225,11 +185,10 @@ export function useMaterialForm({ initialData, onSubmit, onCloseDialog }) {
   const removeSupplier = (index) => {
     updateField('suppliers', formData.suppliers.filter((_, i) => i !== index));
   };
-  
+
   const handleTagChange = (newTags) => {
     updateField('tags', newTags);
   };
-
 
   return {
     formData,

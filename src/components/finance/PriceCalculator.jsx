@@ -22,7 +22,7 @@ export default function PriceCalculator({
   const [error, setError] = useState(null);
   const [calculation, setCalculation] = useState(null);
   const [breakdownVisible, setBreakdownVisible] = useState(false);
-  
+
   const isRTL = language === "he";
 
   useEffect(() => {
@@ -34,18 +34,18 @@ export default function PriceCalculator({
   const calculatePrice = async () => {
     setLoading(true);
     setError(null);
-    
+
     try {
       // Get provider contract and tariff
       const [providerContract] = await Contract.filter({ provider_id: providerId });
-      const [tariff] = await Tariff.filter({ 
+      const [tariff] = await Tariff.filter({
         provider_id: providerId,
         internal_code: internalCode
       });
 
       if (!tariff) {
-        throw new Error(isRTL 
-          ? "לא נמצא תעריף עבור קוד זה" 
+        throw new Error(isRTL
+          ? "לא נמצא תעריף עבור קוד זה"
           : "No tariff found for this code"
         );
       }
@@ -56,23 +56,30 @@ export default function PriceCalculator({
         [doctorContract] = await DoctorContract.filter({ doctor_id: doctorId });
       }
 
-      // Find applicable contract scope rule
-      const scopeRule = providerContract.scope_rules.find(rule => 
-        (rule.scope_type === "code" && rule.code === internalCode) ||
-        (rule.scope_type === "catalog_category" && internalCode.startsWith(rule.catalog_path)) ||
-        rule.scope_type === "all"
+      // Validate provider contract and find applicable rule
+      if (!providerContract || !Array.isArray(providerContract.scope_rules)) {
+        throw new Error(
+          isRTL ? "לא נמצא חוזה עבור ספק זה" : "No contract found for this provider"
+        );
+      }
+
+      const scopeRule = providerContract.scope_rules.find(
+        rule =>
+          (rule.scope_type === "code" && rule.code === internalCode) ||
+          (rule.scope_type === "catalog_category" && internalCode.startsWith(rule.catalog_path)) ||
+          rule.scope_type === "all"
       );
 
       if (!scopeRule) {
-        throw new Error(isRTL 
-          ? "לא נמצא כלל חוזה מתאים" 
+        throw new Error(isRTL
+          ? "לא נמצא כלל חוזה מתאים"
           : "No matching contract rule found"
         );
       }
 
       // Base calculation
       const basePrice = tariff.base_price * quantity;
-      
+
       // Component breakdown
       const components = {
         facility_fee: tariff.price_components?.facility_fee || 0,
@@ -250,23 +257,23 @@ export default function PriceCalculator({
               <div className="pt-3 border-t mt-3">
                 <div className="flex flex-wrap gap-2">
                   <Badge variant={calculation.breakdown.includes_doctor_fee ? "success" : "secondary"}>
-                    {isRTL ? "שכר רופא" : "Doctor Fee"}: 
-                    {calculation.breakdown.includes_doctor_fee 
+                    {isRTL ? "שכר רופא" : "Doctor Fee"}:
+                    {calculation.breakdown.includes_doctor_fee
                       ? (isRTL ? " כלול" : " Included")
                       : (isRTL ? " נפרד" : " Separate")
                     }
                   </Badge>
-                  
+
                   <Badge variant={calculation.breakdown.includes_implantables ? "success" : "secondary"}>
-                    {isRTL ? "שתלים" : "Implantables"}: 
+                    {isRTL ? "שתלים" : "Implantables"}:
                     {calculation.breakdown.includes_implantables
                       ? (isRTL ? " כלול" : " Included")
                       : (isRTL ? " נפרד" : " Separate")
                     }
                   </Badge>
-                  
+
                   <Badge variant={calculation.breakdown.includes_consumables ? "success" : "secondary"}>
-                    {isRTL ? "מתכלים" : "Consumables"}: 
+                    {isRTL ? "מתכלים" : "Consumables"}:
                     {calculation.breakdown.includes_consumables
                       ? (isRTL ? " כלול" : " Included")
                       : (isRTL ? " נפרד" : " Separate")

@@ -8,16 +8,34 @@ import FilterBarCard from '@/components/common/FilterBarCard';
 import FilterSelect from '@/components/common/FilterSelect';
 
 export default function ImportHistoryFilterBar({
-  filters,
-  onFilterChange,
-  onReset,
+  filters = {}, // Add default empty object
+  onFilterChange = () => {}, // Add default no-op function
+  onReset = () => {}, // Add default no-op function
   moduleOptions = [],
 }) {
   const { t, isRTL } = useLanguageHook();
 
+  // Ensure filters has all expected properties with defaults
+  const safeFilters = {
+    searchTerm: '',
+    module: 'all',
+    status: 'all',
+    startDate: '',
+    endDate: '',
+    ...filters // Spread actual filters to override defaults
+  };
+
   const handleInputChange = (e) => {
     const { name, value } = e.target;
-    onFilterChange(name, value);
+    if (typeof onFilterChange === 'function') {
+      onFilterChange(name, value);
+    }
+  };
+
+  const handleReset = () => {
+    if (typeof onReset === 'function') {
+      onReset();
+    }
   };
 
   const statusOptions = [
@@ -33,13 +51,13 @@ export default function ImportHistoryFilterBar({
           <Search className={`absolute top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400 ${isRTL ? 'right-3' : 'left-3'}`} />
           <Input
             name="searchTerm"
-            value={filters.searchTerm}
+            value={safeFilters.searchTerm}
             onChange={handleInputChange}
             placeholder={t("importHistory.searchPlaceholder", { defaultValue: "Search imports by filename..." })}
             className={`${isRTL ? 'pr-10' : 'pl-10'} w-full`}
           />
         </div>
-        <Button variant="outline" onClick={onReset} className="w-full md:w-auto">
+        <Button variant="outline" onClick={handleReset} className="w-full md:w-auto">
           <FilterX className={`w-4 h-4 ${isRTL ? 'ml-2' : 'mr-2'}`} />
           {t('common.resetFilters', { defaultValue: 'Reset Filters' })}
         </Button>
@@ -52,7 +70,7 @@ export default function ImportHistoryFilterBar({
           labelKey="importHistory.moduleLabel"
           label="Module"
           defaultValueLabel={t('importHistory.allModules', { defaultValue: 'All Modules' })}
-          value={filters.module}
+          value={safeFilters.module}
           onChange={handleInputChange}
           options={moduleOptions}
           icon={Book}
@@ -63,7 +81,7 @@ export default function ImportHistoryFilterBar({
           labelKey="importHistory.statusLabel"
           label="Status"
           defaultValueLabel={t('common.allStatuses', { defaultValue: 'All Statuses' })}
-          value={filters.status}
+          value={safeFilters.status}
           onChange={handleInputChange}
           options={statusOptions}
           icon={Check}
@@ -77,7 +95,7 @@ export default function ImportHistoryFilterBar({
             <Input
               type="date"
               name="startDate"
-              value={filters.startDate || ''}
+              value={safeFilters.startDate || ''}
               onChange={handleInputChange}
               className="w-full"
             />
@@ -85,7 +103,7 @@ export default function ImportHistoryFilterBar({
             <Input
               type="date"
               name="endDate"
-              value={filters.endDate || ''}
+              value={safeFilters.endDate || ''}
               onChange={handleInputChange}
               className="w-full"
             />

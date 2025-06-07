@@ -1,49 +1,35 @@
-
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { Material } from '@/api/entities';
 import { useLanguageHook } from '@/components/useLanguageHook';
-import { useToast } from "@/components/ui/use-toast";
-import { Material } from '@/api/entities'; // Assuming Material is an SDK or ORM class
-import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import LoadingSpinner from '@/components/ui/loading-spinner';
-import EmptyState from '@/components/ui/empty-state';
-import ConfirmationDialog from '@/components/ui/confirmation-dialog';
-import { useEntityModule } from '@/hooks/useEntityModule'; // Assuming useEntityModule hook exists
-
+import { useToast } from '@/components/ui/use-toast';
+import useEntityModule from '@/components/hooks/useEntityModule';
+// Corrected DataTable import path
+import { DataTable } from '@/components/ui/data-table';
 import MaterialDialog from './material-dialog';
-import MaterialCard from './MaterialCard';
-import ViewSwitcher from '@/components/common/ViewSwitcher';
+import SearchFilterBar from '@/components/shared/SearchFilterBar';
 import GlobalActionButton from '@/components/common/GlobalActionButton';
-import DataTable from '@/components/shared/DataTable';
-import MaterialsFilterBar from './MaterialsFilterBar';
-import ImportDialog from '@/components/common/ImportDialog';
-import { Badge } from '@/components/ui/badge';
+import ViewSwitcher from '@/components/common/ViewSwitcher';
+import LoadingSpinner from '@/components/ui/loading-spinner';
+import { Button } from '@/components/ui/button';
+import { format } from 'date-fns';
+import { Plus, Package, RefreshCcw } from 'lucide-react';
 
-import {
-    Package, Plus, UploadCloud, AlertTriangle, RefreshCw
-} from 'lucide-react';
-
-import { formatDistanceToNow, parseISO, isValid } from 'date-fns';
-import { enUS, he } from 'date-fns/locale';
-
-const getLocaleObject = (languageCode) => (languageCode === 'he' ? he : enUS);
-
-// Helper for localStorage
+// Utility functions
 const loadFromStorage = (key, defaultValue) => {
   try {
-    const storedValue = localStorage.getItem(key);
-    return storedValue !== null ? storedValue : defaultValue;
+    const item = localStorage.getItem(key);
+    return item ? JSON.parse(item) : defaultValue;
   } catch (error) {
-    console.error("Failed to load from localStorage", error);
+    console.error(`Error loading from storage for key "${key}":`, error);
     return defaultValue;
   }
 };
 
 const saveToStorage = (key, value) => {
   try {
-    localStorage.setItem(key, value);
+    localStorage.setItem(key, JSON.stringify(value));
   } catch (error) {
-    console.error("Failed to save to localStorage", error);
+    console.error(`Error saving to storage for key "${key}":`, error);
   }
 };
 
@@ -51,459 +37,399 @@ export default function MaterialsTab({ globalActionsConfig: externalActionsConfi
   const { t, language, isRTL } = useLanguageHook();
   const { toast } = useToast();
 
-  const getLocalizedMaterialName = useCallback((material) => {
-    if (!material) return t('common.unknownMaterial', {defaultValue: 'Unknown Material'});
-    const lang = t('common.langCode', {defaultValue: 'en'});
-    return lang === 'he' ? (material.name_he || material.name_en) : (material.name_en || material.name_he);
-  }, [t]);
-
   const entityConfig = useMemo(() => ({
     entitySDK: Material,
-    entityNameSingular: t('pageTitles.materialsSingular', { defaultValue: 'Material' }),
-    entityNamePlural: t('pageTitles.materialsManagement'),
-    DialogComponent: MaterialDialog,
-    FormComponent: null, // MaterialDialog acts as both
+    entityName: t('materials.itemTitleSingular', {defaultValue: "Material"}),
+    entityNamePlural: t('materials.itemTitlePlural', {defaultValue: "Materials"}),
     initialFilters: {
-      searchTerm: '',
-      status: 'all', // 'active', 'inactive'
-      hasVariants: 'all', // 'yes', 'no'
+      searchTerm: '', 
       page: 1,
       pageSize: 10,
+      unit_of_measure: '',
+      is_active: '',
+      has_variants: '',
     },
-    // filterFunction applies client-side filtering *after* data is fetched
-    filterFunction: (item, currentFilters) => {
-        const { searchTerm, status, hasVariants: hasVariantsFilter } = currentFilters;
-        let matches = true;
+    filterFunction: (item, filters) => {
+      const { searchTerm, unit_of_measure, is_active, has_variants } = filters;
 
-        if (searchTerm) {
-            const termLower = searchTerm.toLowerCase();
-            const localizedName = getLocalizedMaterialName(item)?.toLowerCase() || '';
-            const descriptionEn = item.description_en?.toLowerCase() || '';
-            const descriptionHe = item.description_he?.toLowerCase() || '';
+      // Search term logic (case-insensitive)
+      if (searchTerm) {
+        const lowerCaseSearchTerm = searchTerm.toLowerCase();
+        const matchesNameEn = item.name_en?.toLowerCase().includes(lowerCaseSearchTerm);
+        const matchesNameHe = item.name_he?.toLowerCase().includes(lowerCaseSearchTerm);
+        const matchesDescEn = item.description_en?.toLowerCase().includes(lowerCaseSearchTerm);
+        const matchesDescHe = item.description_he?.toLowerCase().includes(lowerCaseSearchTerm);
+        const matchesTags = item.tags?.some(tag => tag.toLowerCase().includes(lowerCaseSearchTerm));
+        
+        if (!matchesNameEn && !matchesNameHe && !matchesDescEn && !matchesDescHe && !matchesTags) {
+          return false;
+        }
+      }
 
-            matches = matches && (
-                localizedName.includes(termLower) ||
-                descriptionEn.includes(termLower) ||
-                descriptionHe.includes(termLower)
-            );
-        }
-        if (status !== 'all') {
-            matches = matches && (status === 'active' ? item.is_active : !item.is_active);
-        }
-        if (hasVariantsFilter !== 'all') {
-            matches = matches && (hasVariantsFilter === 'yes' ? item.has_variants : !item.has_variants);
-        }
-        return matches;
-    },
-    // sortFunction applies client-side sorting *after* data is filtered
-    sortFunction: (items, sortConfig) => {
-        if (!sortConfig || !sortConfig.key) return items;
-        const sortedItems = [...items];
-        sortedItems.sort((a, b) => {
-            let valA, valB;
-            if (sortConfig.key === 'name') { // 'name' accessor in columns
-                valA = getLocalizedMaterialName(a)?.toLowerCase() || '';
-                valB = getLocalizedMaterialName(b)?.toLowerCase() || '';
-            } else if (sortConfig.key === 'updated_date') {
-                valA = a.updated_date && isValid(parseISO(a.updated_date)) ? parseISO(a.updated_date).getTime() : (sortConfig.direction === 'ascending' ? Infinity : -Infinity);
-                valB = b.updated_date && isValid(parseISO(b.updated_date)) ? parseISO(b.updated_date).getTime() : (sortConfig.direction === 'ascending' ? Infinity : -Infinity);
-            } else {
-                valA = a[sortConfig.key];
-                valB = b[sortConfig.key];
-            }
-            
-            // Handle undefined/null values for sorting
-            if (valA === undefined || valA === null) valA = sortConfig.direction === 'ascending' ? Infinity : -Infinity;
-            if (valB === undefined || valB === null) valB = sortConfig.direction === 'ascending' ? Infinity : -Infinity;
-            
-            if (valA < valB) return sortConfig.direction === 'ascending' ? -1 : 1;
-            if (valA > valB) return sortConfig.direction === 'ascending' ? 1 : -1;
-            return 0;
-        });
-        return sortedItems;
+      // Filter by unit of measure
+      if (unit_of_measure && item.unit_of_measure !== unit_of_measure) {
+        return false;
+      }
+
+      // Filter by active status
+      if (is_active !== '' && Boolean(item.is_active) !== Boolean(is_active === 'true')) {
+        return false;
+      }
+
+      // Filter by has variants
+      if (has_variants !== '' && Boolean(item.has_variants) !== Boolean(has_variants === 'true')) {
+        return false;
+      }
+
+      return true;
     },
     storageKey: 'materialsView',
-    // Custom messages for toasts and dialogs
-    messages: {
-        createSuccess: (name) => t('materials.createSuccess', { name }),
-        updateSuccess: (name) => t('materials.updateSuccess', { name }),
-        deleteSuccess: (count) => t('materials.bulkDeleteSuccess', { count }),
-        deleteConfirm: (count, itemName) => t('materials.bulkDeleteConfirmMessage', { count, itemName: itemName.toLowerCase() }),
-        deleteError: (name, error) => t('materials.deleteError', { name, error }),
-        fetchError: (item) => t('errors.fetchFailedGeneral', { item }),
-        rateLimitError: () => t('errors.rateLimitExceededShort'),
-        networkError: () => t('errors.networkErrorGeneral'),
-    }
-  }), [t, getLocalizedMaterialName]);
+  }), [t]);
 
   const {
-    items: materials, // Renamed from 'items' to 'materials' for existing code compatibility
-    loading, error, filters, setFilters, sortConfig, setSortConfig, pagination,
-    selectedItems, setSelectedItems, isDialogOpen, setIsDialogOpen, currentItem, setCurrentItem,
-    handleRefresh, handleFilterChange, handleSortChange,
-    handlePageChange, handlePageSizeChange, handleAddNew, handleEdit, handleDelete,
-    handleBulkDelete, isSelectionModeActive, setIsSelectionModeActive,
-    handleToggleSelection, handleSelectAll, handleSelfSubmittingDialogClose,
-    filteredAndSortedItems, // This is the fully processed list before pagination
-    paginatedItems, // This is the list for the current page
-    totalItems: totalFilteredItems, // Total items after filtering/sorting
+    items: materials,
+    loading, 
+    error, 
+    filters, 
+    setFilters, 
+    sortConfig, 
+    setSortConfig, 
+    pagination,
+    handleRefresh: refreshMaterials, 
+    handleSearch, 
+    handleFilterChange, 
+    handleSortChange,
+    handlePageChange, 
+    handlePageSizeChange,
   } = useEntityModule(entityConfig);
 
-  const [currentView, setCurrentView] = useState(passedView || loadFromStorage('materialsView_view_preference', 'card'));
-  const [isImportDialogOpen, setIsImportDialogOpen] = useState(false);
-  const [deleteDialogState, setDeleteDialogState] = useState({ isOpen: false, itemIds: null, itemName: '', message: '' });
+  const [currentView, setCurrentView] = useState(passedView || loadFromStorage('materialsView_viewPreference', 'table'));
+  const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [currentItem, setCurrentItem] = useState(null);
+  const [selectedItems, setSelectedItems] = useState([]);
+  const [isSelectionModeActive, setIsSelectionModeActive] = useState(false);
 
-  const currentLocale = getLocaleObject(language);
-
-  // Effect to save view preference to localStorage
   useEffect(() => {
-    saveToStorage('materialsView_view_preference', currentView);
+    saveToStorage('materialsView_viewPreference', currentView);
   }, [currentView]);
 
+  const handleAddNew = useCallback(() => {
+    setCurrentItem(null);
+    setIsDialogOpen(true);
+  }, []);
+
+  const handleEdit = useCallback((item) => {
+    setCurrentItem(item);
+    setIsDialogOpen(true);
+  }, []);
+
+  const handleDelete = useCallback(async (itemId) => {
+    try {
+      await Material.delete(itemId);
+      toast({
+        title: t('common.success', { defaultValue: 'Success' }),
+        description: t('materials.deleteSuccess', { defaultValue: 'Material deleted successfully.' }),
+      });
+      refreshMaterials();
+    } catch (error) {
+      console.error('Delete error:', error);
+      toast({
+        title: t('common.error', { defaultValue: 'Error' }),
+        description: t('materials.deleteError', { defaultValue: 'Failed to delete material.' }),
+        variant: 'destructive',
+      });
+    }
+  }, [t, toast, refreshMaterials]);
+
+  const handleBulkDelete = useCallback(async (itemIds) => {
+    try {
+      await Promise.all(itemIds.map(id => Material.delete(id)));
+      toast({
+        title: t('common.success', { defaultValue: 'Success' }),
+        description: t('materials.bulkDeleteSuccess', { 
+          count: itemIds.length,
+          defaultValue: `Successfully deleted ${itemIds.length} materials.`
+        }),
+      });
+      refreshMaterials();
+      setSelectedItems([]);
+    } catch (error) {
+      console.error('Bulk delete error:', error);
+      toast({
+        title: t('common.error', { defaultValue: 'Error' }),
+        description: t('materials.bulkDeleteError', { defaultValue: 'Failed to delete some materials.' }),
+        variant: 'destructive',
+      });
+    }
+  }, [t, toast, refreshMaterials]);
+
+  const handleDialogClose = useCallback(async (result) => {
+    if (result) {
+      try {
+        if (currentItem) {
+          await Material.update(currentItem.id, result);
+          toast({
+            title: t('common.success', { defaultValue: 'Success' }),
+            description: t('materials.updateSuccess', { defaultValue: 'Material updated successfully.' }),
+          });
+        } else {
+          await Material.create(result);
+          toast({
+            title: t('common.success', { defaultValue: 'Success' }),
+            description: t('materials.createSuccess', { defaultValue: 'Material created successfully.' }),
+          });
+        }
+        refreshMaterials();
+      } catch (error) {
+        console.error('Save error:', error);
+        toast({
+          title: t('common.error', { defaultValue: 'Error' }),
+          description: t('common.saveError', { defaultValue: 'Failed to save material.' }),
+          variant: 'destructive',
+        });
+      }
+    }
+    setIsDialogOpen(false);
+    setCurrentItem(null);
+  }, [currentItem, t, toast, refreshMaterials]);
+
+  const handleToggleSelection = useCallback((itemId) => {
+    setSelectedItems(prev => 
+      prev.includes(itemId) 
+        ? prev.filter(id => id !== itemId)
+        : [...prev, itemId]
+    );
+  }, []);
+
+  const handleSelectAll = useCallback(() => {
+    const allVisibleIds = materials.map(item => item.id);
+    setSelectedItems(allVisibleIds);
+  }, [materials]);
+
   const memoizedGlobalActionsConfig = useMemo(() => [
-    { labelKey: 'materials.addNewMaterial', defaultLabel: 'Add New Material', icon: Plus, action: handleAddNew, type: 'add'},
-    ...(externalActionsConfig || []),
-    { isSeparator: true },
-    { labelKey: 'buttons.import', defaultLabel: 'Import', icon: UploadCloud, action: () => setIsImportDialogOpen(true), type: 'import' },
-  ], [handleAddNew, externalActionsConfig, t]);
+    { labelKey: 'materials.addMaterial', defaultLabel: 'Add Material', icon: Plus, action: handleAddNew, type: 'add'},
+    ...(externalActionsConfig || [])
+  ], [handleAddNew, externalActionsConfig]);
 
   const handleEditWithSelectionCheck = useCallback(() => {
     if (selectedItems.length === 1) {
-      const materialToEdit = materials.find(m => m.id === selectedItems[0]); // materials is the full list
-      if (materialToEdit) {
-        handleEdit(materialToEdit);
+      const item = materials.find(m => m.id === selectedItems[0]);
+      if (item) {
+        handleEdit(item);
+        setIsSelectionModeActive(false);
       }
-    } else if (selectedItems.length === 0) {
-      setIsSelectionModeActive(true);
-      toast({ title: t('bulkActions.selectionModeEnabledTitle'), description: t('bulkActions.selectItemToEditDesc', { entity: t('pageTitles.materialsSingular', {defaultValue: 'Material'})}) });
     } else {
-      toast({ title: t('bulkActions.selectOneToEditTitle'), description: t('bulkActions.selectOneToEditDesc', {entity: t('pageTitles.materialsManagement')}), variant: 'info' });
+      toast({
+        title: t('common.editErrorTitle', { defaultValue: 'Edit Error' }),
+        description: t('common.selectOneItemEdit', { defaultValue: 'Please select only one item to edit.' }),
+        variant: 'destructive',
+      });
     }
   }, [selectedItems, materials, handleEdit, setIsSelectionModeActive, t, toast]);
 
   const handleDeleteWithSelectionCheck = useCallback(() => {
     if (selectedItems.length > 0) {
-      const idsToDelete = Array.from(selectedItems);
-      const firstItemName = idsToDelete.length > 0 ? getLocalizedMaterialName(materials.find(m => m.id === idsToDelete[0])) : t('pageTitles.materialsSingular', {defaultValue: 'Material'});
-      const itemName = idsToDelete.length === 1 ? firstItemName : t('pageTitles.materialsManagement');
-
-      setDeleteDialogState({
-          isOpen: true,
-          itemIds: idsToDelete,
-          itemName: itemName,
-          message: t('materials.bulkDeleteConfirmMessage', { count: idsToDelete.length, itemName: itemName.toLowerCase() })
-      });
+      handleBulkDelete(selectedItems);
+      setIsSelectionModeActive(false);
     } else {
-      setIsSelectionModeActive(true);
-      toast({ title: t('bulkActions.selectionModeEnabledTitle'), description: t('bulkActions.selectItemsToDeleteDesc', { entity: t('pageTitles.materialsManagement')}) });
+      toast({
+        title: t('common.deleteErrorTitle', { defaultValue: 'Delete Error' }),
+        description: t('common.selectItemDelete', { defaultValue: 'Please select items to delete.' }),
+        variant: 'destructive',
+      });
     }
-  }, [selectedItems, materials, getLocalizedMaterialName, setIsSelectionModeActive, t, toast]);
-
-  const handleConfirmDelete = async () => {
-    if (!deleteDialogState.itemIds || deleteDialogState.itemIds.length === 0) return;
-    await handleBulkDelete(deleteDialogState.itemIds);
-    setDeleteDialogState({ isOpen: false, itemIds: null, itemName: '', message: '' });
-    handleCancelSelectionMode();
-  };
+  }, [selectedItems, handleBulkDelete, setIsSelectionModeActive, t, toast]);
 
   const handleCancelSelectionMode = useCallback(() => {
     setIsSelectionModeActive(false);
     setSelectedItems([]);
-  }, [setIsSelectionModeActive, setSelectedItems]);
+  }, []);
 
-  const handleImportSubmit = async (records) => {
-    setIsImportDialogOpen(false);
-    if (!records || records.length === 0) {
-      toast({ title: t('import.noRecordsTitle'), description: t('import.noRecordsDesc'), variant: "warning" });
-      return;
-    }
-    
-    const materialsToCreate = records.map(rec => ({
-        name_en: rec['Name EN'] || rec['name_en'],
-        name_he: rec['Name HE'] || rec['name_he'],
-        description_en: rec['Description EN'] || rec['description_en'],
-        description_he: rec['Description HE'] || rec['description_he'],
-        unit_of_measure: rec['Unit']?.toLowerCase() || rec['unit_of_measure']?.toLowerCase() || 'unit',
-        base_price: parseFloat(rec['Price'] || rec['base_price']) || 0,
-        currency: rec['Currency'] || rec['currency'] || 'ILS',
-        has_variants: (rec['Has Variants'] || rec['has_variants'])?.toLowerCase() === 'true',
-        is_active: (rec['Active'] || rec['is_active'])?.toLowerCase() !== 'false',
-    })).filter(m => m.name_en || m.name_he);
-
-    if(materialsToCreate.length === 0) {
-        toast({title: t('import.noValidRecordsTitle'), description: t('import.noValidRecordsDesc', {entity: t('pageTitles.materialsManagement')}), variant: 'warning'});
-        return;
-    }
-    
-    let successCount = 0; let errorCount = 0;
-    // Set a temporary loading state for the import process
-    toast({
-      title: t('import.inProgressTitle'),
-      description: t('import.inProgressDesc', { entity: t('pageTitles.materialsManagement') }),
-      duration: 3000,
-    });
-    
-    // Simulate a global loading spinner if useEntityModule doesn't handle this
-    // For now, rely on individual toasts for success/failure
-    
-    for (const materialData of materialsToCreate) {
-        try { await Material.create(materialData); successCount++; }
-        catch (err) { console.error("Error creating material from import:", err, materialData); errorCount++; }
-    }
-    
-    toast({
-        title: t('import.completedTitle'),
-        description: t('import.completedDesc', {successCount, errorCount, entity: t('pageTitles.materialsManagement')}),
-    });
-    if (successCount > 0) handleRefresh();
-  };
-
-  const materialColumns = useMemo(() => [
+  const columns = useMemo(() => [
     { 
-      accessorKey: 'name', // This accessorKey is for sorting/filtering. Cell uses localized name.
-      header: t('materials.fields.name'),
-      cell: ({ row }) => getLocalizedMaterialName(row.original) || t('common.notSet'),
-      enableSorting: true,
+      accessorKey: 'name_en', 
+      header: t('fields.nameEn', {defaultValue: 'Name (EN)'}), 
+      cell: ({row}) => row.original.name_en || 'N/A',
+      enableSorting: true 
+    },
+    { 
+      accessorKey: 'name_he', 
+      header: t('fields.nameHe', {defaultValue: 'Name (HE)'}), 
+      cell: ({row}) => row.original.name_he || 'N/A',
+      enableSorting: true 
     },
     { 
       accessorKey: 'unit_of_measure', 
-      header: t('materials.fields.unitOfMeasure'),
-      cell: ({ row }) => row.original.unit_of_measure ? t(`materialUnits.${row.original.unit_of_measure.toLowerCase()}`, {defaultValue: row.original.unit_of_measure}) : t('common.notSet'),
-      enableSorting: true,
+      header: t('fields.unitOfMeasure', {defaultValue: 'Unit'}), 
+      cell: ({row}) => t(`units.${row.original.unit_of_measure}`, {defaultValue: row.original.unit_of_measure}),
+      enableSorting: true 
     },
     { 
-      accessorKey: 'base_price', 
-      header: t('materials.fields.basePrice'),
-      cell: ({ row }) => `${row.original.base_price || 0} ${row.original.currency || 'ILS'}`,
-      enableSorting: true,
-    },
-    {
-      accessorKey: 'has_variants',
-      header: t('materials.fields.hasVariants'),
-      cell: ({ row }) => (
-        <Badge variant={row.original.has_variants ? "default" : "outline"} className="text-xs">
-          {row.original.has_variants ? t('common.yes') : t('common.no')}
-        </Badge>
-      ),
-      enableSorting: true,
+      accessorKey: 'has_variants', 
+      header: t('fields.hasVariants', {defaultValue: 'Variants'}), 
+      cell: ({row}) => row.original.has_variants ? t('common.yes', {defaultValue: 'Yes'}) : t('common.no', {defaultValue: 'No'}),
+      enableSorting: true 
     },
     { 
       accessorKey: 'is_active', 
-      header: t('materials.fields.status'),
-      cell: ({ row }) => (
-        <Badge variant={row.original.is_active ? "success" : "secondary"} className="text-xs">
-          {row.original.is_active ? t('status.active') : t('status.inactive')}
-        </Badge>
-      ),
-      enableSorting: true,
+      header: t('fields.status', {defaultValue: 'Status'}), 
+      cell: ({row}) => row.original.is_active ? t('status.active', {defaultValue: 'Active'}) : t('status.inactive', {defaultValue: 'Inactive'}),
+      enableSorting: true 
     },
     { 
       accessorKey: 'updated_date', 
-      header: t('common.lastUpdated'),
-      cell: ({ row }) => (row.original.updated_date && isValid(parseISO(row.original.updated_date))
-        ? formatDistanceToNow(parseISO(row.original.updated_date), { addSuffix: true, locale: currentLocale })
-        : t('common.unknown')
-      ),
-      enableSorting: true,
+      header: t('fields.updated', {defaultValue: 'Updated'}), 
+      cell: ({ row }) => row.original.updated_date ? format(new Date(row.original.updated_date), 'PP') : 'N/A',
+      enableSorting: true 
     },
-  ], [t, currentLocale, getLocalizedMaterialName]);
+    {
+      id: 'actions',
+      header: t('common.actions', {defaultValue: 'Actions'}),
+      cell: ({ row }) => (
+        <div className="space-x-2">
+          <Button variant="outline" size="sm" onClick={() => handleEdit(row.original)}>
+            {t('buttons.edit', {defaultValue: 'Edit'})}
+          </Button>
+          <Button variant="destructive" size="sm" onClick={() => handleDelete(row.original.id)}>
+            {t('buttons.delete', {defaultValue: 'Delete'})}
+          </Button>
+        </div>
+      ),
+      enableSorting: false,
+    },
+  ], [t, handleEdit, handleDelete, language]);
 
-  if (loading && totalFilteredItems === 0 && !error) { // Initial loading state
-    return <div className="flex justify-center items-center h-64"><LoadingSpinner message={t('messages.loadingData', {item: t('pageTitles.materialsManagement')})} /></div>;
-  }
+  const filterContent = (
+    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div>
+        <label className="text-sm font-medium">{t('fields.unitOfMeasure', {defaultValue: 'Unit of Measure'})}</label>
+        <select 
+          value={filters.unit_of_measure || ''} 
+          onChange={(e) => handleFilterChange({unit_of_measure: e.target.value})}
+          className="w-full mt-1 p-2 border rounded-md"
+        >
+          <option value="">{t('filters.allUnits', {defaultValue: 'All Units'})}</option>
+          <option value="unit">{t('units.unit', {defaultValue: 'Unit'})}</option>
+          <option value="mg">{t('units.mg', {defaultValue: 'mg'})}</option>
+          <option value="ml">{t('units.ml', {defaultValue: 'ml'})}</option>
+          <option value="g">{t('units.g', {defaultValue: 'g'})}</option>
+          <option value="kg">{t('units.kg', {defaultValue: 'kg'})}</option>
+          <option value="box">{t('units.box', {defaultValue: 'Box'})}</option>
+          <option value="pack">{t('units.pack', {defaultValue: 'Pack'})}</option>
+        </select>
+      </div>
+      <div>
+        <label className="text-sm font-medium">{t('fields.status', {defaultValue: 'Status'})}</label>
+        <select 
+          value={filters.is_active || ''} 
+          onChange={(e) => handleFilterChange({is_active: e.target.value})}
+          className="w-full mt-1 p-2 border rounded-md"
+        >
+          <option value="">{t('filters.allStatuses', {defaultValue: 'All Statuses'})}</option>
+          <option value="true">{t('status.active', {defaultValue: 'Active'})}</option>
+          <option value="false">{t('status.inactive', {defaultValue: 'Inactive'})}</option>
+        </select>
+      </div>
+      <div>
+        <label className="text-sm font-medium">{t('fields.hasVariants', {defaultValue: 'Has Variants'})}</label>
+        <select 
+          value={filters.has_variants || ''} 
+          onChange={(e) => handleFilterChange({has_variants: e.target.value})}
+          className="w-full mt-1 p-2 border rounded-md"
+        >
+          <option value="">{t('filters.all', {defaultValue: 'All'})}</option>
+          <option value="true">{t('common.yes', {defaultValue: 'Yes'})}</option>
+          <option value="false">{t('common.no', {defaultValue: 'No'})}</option>
+        </select>
+      </div>
+    </div>
+  );
+
+  const renderContent = () => {
+    if (loading) {
+      return <LoadingSpinner />;
+    }
+    if (error) {
+      return <div className="text-center py-8 text-red-500">{error}</div>;
+    }
+    if (!materials || materials.length === 0) {
+      return <div className="text-center py-8 text-gray-500 dark:text-gray-400">{t('common.noItemsFound', {defaultValue: 'No items found.'})}</div>;
+    }
+
+    switch (currentView) {
+      case 'table':
+      default:
+        return (
+          <DataTable
+            columns={columns}
+            data={materials}
+            pagination={pagination}
+            onPageChange={handlePageChange}
+            onSortChange={handleSortChange}
+            currentSort={sortConfig}
+            entityName={t('materials.titlePlural', {defaultValue: 'Materials'})}
+            isSelectionModeActive={isSelectionModeActive}
+            selectedRowIds={new Set(selectedItems)}
+            onRowSelectionChange={handleToggleSelection}
+            onSelectAllRows={handleSelectAll}
+          />
+        );
+    }
+  };
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-col sm:flex-row items-center justify-between gap-2 sticky top-[calc(var(--header-height,0px)+var(--subheader-height,0px))] bg-background dark:bg-gray-900 py-3 z-10 -mx-1 px-1 md:mx-0 md:px-0 border-b dark:border-gray-700">
+      <div className="flex flex-col sm:flex-row items-center justify-between gap-2">
         <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-100 flex items-center">
           <Package className={`h-5 w-5 ${isRTL ? 'ml-2' : 'mr-2'} text-gray-600 dark:text-gray-400`} />
-          {t('pageTitles.materialsManagement')} ({totalFilteredItems})
+          {t('materials.title', {defaultValue: 'Materials'})} ({materials?.length || 0})
         </h3>
         <div className="flex items-center gap-2">
-            <GlobalActionButton
-                actionsConfig={memoizedGlobalActionsConfig}
-                onEditItems={handleEditWithSelectionCheck}
-                onDeleteItems={handleDeleteWithSelectionCheck}
-                isSelectionModeActive={isSelectionModeActive}
-                onCancelSelectionMode={handleCancelSelectionMode}
-                selectedItemCount={selectedItems.length}
-                itemTypeForActions={t('pageTitles.materialsSingular', {defaultValue: 'Material'})}
-                t={t}
-              />
-            <Button variant="outline" size="sm" onClick={() => handleRefresh(true)} disabled={loading}>
-                <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''} ${isRTL ? 'ml-1.5' : 'mr-1.5'}`} />
-                {t('buttons.refresh')}
-            </Button>
-            <ViewSwitcher
-                currentView={currentView}
-                onViewChange={(view) => { setCurrentView(view); handleCancelSelectionMode(); }}
-                availableViews={['card', 'table']}
-                entityName={t('pageTitles.materialsManagement')}
-                t={t} isRTL={isRTL}
-            />
+          <GlobalActionButton
+            actionsConfig={memoizedGlobalActionsConfig}
+            onEditItems={handleEditWithSelectionCheck}
+            onDeleteItems={handleDeleteWithSelectionCheck}
+            isSelectionModeActive={isSelectionModeActive}
+            onCancelSelectionMode={handleCancelSelectionMode}
+            selectedItemCount={selectedItems.length}
+            itemTypeForActions={t('materials.itemTitleSingular', {defaultValue: "Material"})}
+            t={t}
+          />
+          <Button variant="outline" size="sm" onClick={refreshMaterials} disabled={loading}>
+            <RefreshCcw className={`h-4 w-4 ${isRTL ? 'ml-2' : 'mr-2'} ${loading ? 'animate-spin' : ''}`} />
+            {t('common.refresh', {defaultValue: 'Refresh'})}
+          </Button>
+          <ViewSwitcher 
+            currentView={currentView} 
+            onViewChange={setCurrentView} 
+            availableViews={['table']}
+            entityName="materials"
+          />
         </div>
       </div>
 
-      <MaterialsFilterBar
-        filters={filters}
-        onFiltersChange={handleFilterChange}
-        onResetFilters={() => {
-          setFilters(entityConfig.initialFilters); // Reset to initial filters
-          setSortConfig({ key: 'name', direction: 'ascending' }); // Reset sort
-          handleCancelSelectionMode();
-           toast({
-              title: t('filters.clearedTitle'),
-              description: t('filters.filtersReset', { item: t('pageTitles.materialsManagement') }),
-          });
-        }}
-        sortConfig={sortConfig}
-        // MaterialsFilterBar expects a single key, then toggle logic.
-        // Adapt it to use useEntityModule's setSortConfig
-        onSortChange={(key) => {
-            let direction = 'ascending';
-            if (sortConfig.key === key && sortConfig.direction === 'ascending') direction = 'descending';
-            else if (sortConfig.key === key && sortConfig.direction === 'descending') direction = 'ascending';
-            setSortConfig({ key, direction });
-        }}
-        t={t} language={language} isRTL={isRTL}
+      <SearchFilterBar
+        searchQuery={filters.searchTerm}
+        onSearch={handleSearch}
+        searchPlaceholder={t('materials.searchPlaceholder', {defaultValue: 'Search materials...'})}
+        filterContent={filterContent}
+        onReset={() => setFilters({
+          searchTerm: '', unit_of_measure: '', is_active: '', has_variants: '', page: 1, pageSize: 10,
+        })}
+        isRTL={isRTL}
       />
-      
-      {error && (totalFilteredItems === 0) && ( // Show error if no data or initial fetch failed
-         <Card className="border-destructive bg-destructive/10 dark:border-red-700 dark:bg-red-900/20">
-            <CardHeader>
-                <CardTitle className="text-destructive dark:text-red-300 flex items-center">
-                    <AlertTriangle className="mr-2 h-5 w-5" />
-                    {t('common.errorOccurred')}
-                </CardTitle>
-            </CardHeader>
-            <CardContent>
-                <p className="text-sm text-destructive dark:text-red-300">{error}</p>
-                <Button variant="outline" size="sm" onClick={() => handleRefresh(true)} className="mt-3 border-destructive text-destructive hover:bg-destructive/20 dark:border-red-600 dark:text-red-300 dark:hover:bg-red-700/30">
-                    <RefreshCw className="mr-2 h-4 w-4" />
-                    {t('buttons.retryNow')}
-                </Button>
-            </CardContent>
-        </Card>
-      )}
 
-      {!loading && !error && totalFilteredItems === 0 && (
-        <EmptyState
-          icon={Package}
-          title={t('materials.noMaterialsFilterDesc')}
-          message={t('materials.noMaterialsDesc')}
-          actionButton={
-            <Button onClick={handleAddNew}>
-              <Plus className={`h-4 w-4 ${isRTL ? 'ml-1.5' : 'mr-1.5'}`} />
-              {t('buttons.addNewMaterial', {defaultValue: 'Add New Material'})}
-            </Button>
-          }
-          t={t} isRTL={isRTL}
-        />
-      )}
-
-      {(!error || totalFilteredItems > 0) && (totalFilteredItems > 0 || (loading && materials.length > 0)) && (
-        <>
-          {currentView === 'card' && paginatedItems.length > 0 && (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-              {paginatedItems.map((material) => (
-                <MaterialCard
-                  key={material.id}
-                  material={material}
-                  currentLocale={currentLocale}
-                  t={t} isRTL={isRTL}
-                  isSelectionModeActive={isSelectionModeActive}
-                  isSelected={selectedItems.includes(material.id)}
-                  onToggleSelection={() => handleToggleSelection(material.id)}
-                  onCardClick={() => !isSelectionModeActive && handleEdit(material)}
-                />
-              ))}
-            </div>
-          )}
-
-          {currentView === 'table' && (
-            <DataTable
-              columns={materialColumns}
-              data={paginatedItems} // DataTable displays paginated items
-              loading={loading}
-              error={null} // Error handled separately above
-              entityName={t('pageTitles.materialsManagement')}
-              pagination={{
-                currentPage: pagination.currentPage,
-                pageSize: pagination.pageSize,
-                totalItems: pagination.totalItems, // Total items *after* filtering/sorting
-                totalPages: pagination.totalPages,
-                onPageChange: handlePageChange,
-                onPageSizeChange: handlePageSizeChange,
-              }}
-              onSortChange={handleSortChange} // This expects {id, desc} array
-              currentSort={sortConfig.key ? [{ id: sortConfig.key, desc: sortConfig.direction === 'descending' }] : []}
-              isSelectionModeActive={isSelectionModeActive}
-              selectedRowIds={new Set(selectedItems)} // DataTable expects Set
-              onRowSelectionChange={(id) => handleToggleSelection(id)}
-              onSelectAllRows={() => handleSelectAll(paginatedItems.map(item => item.id))} // Select all on current page
-              onRowClick={({original: item}) => !isSelectionModeActive && item?.id && handleEdit(item)}
-              t={t} language={language} isRTL={isRTL}
-            />
-          )}
-
-          {currentView === 'card' && pagination.totalPages > 1 && (
-            <div className="flex justify-center items-center pt-4 space-x-2 rtl:space-x-reverse">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => handlePageChange(pagination.currentPage - 1)}
-                disabled={pagination.currentPage <= 1}
-                className="dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700"
-              >
-                {t('buttons.previous')}
-              </Button>
-              <span className="text-sm text-gray-700 dark:text-gray-300">
-                {t('dataTable.pageInfo', { page: pagination.currentPage, totalPages: pagination.totalPages })}
-              </span>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => handlePageChange(pagination.currentPage + 1)}
-                disabled={pagination.currentPage >= pagination.totalPages}
-                className="dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700"
-              >
-                {t('buttons.next')}
-              </Button>
-            </div>
-          )}
-        </>
-      )}
+      {renderContent()}
 
       {isDialogOpen && (
         <MaterialDialog
-          isOpen={isDialogOpen}
-          onClose={handleSelfSubmittingDialogClose}
+          open={isDialogOpen}
+          onOpenChange={setIsDialogOpen}
           materialData={currentItem}
-          t={t} language={language} isRTL={isRTL}
+          onSubmit={handleDialogClose}
+          isLoading={loading}
         />
       )}
-      
-      {isImportDialogOpen && (
-        <ImportDialog
-          isOpen={isImportDialogOpen}
-          onOpenChange={setIsImportDialogOpen}
-          entityName={t('pageTitles.materialsManagement')}
-          onImport={handleImportSubmit}
-          language={language}
-        />
-      )}
-
-      <ConfirmationDialog
-        open={deleteDialogState.isOpen}
-        onOpenChange={(open) => setDeleteDialogState(prev => ({ ...prev, isOpen: open }))}
-        onConfirm={handleConfirmDelete}
-        title={t('common.confirmDeleteTitle', {item: deleteDialogState.itemName || t('pageTitles.materialsSingular', {defaultValue:'Material'}), count: deleteDialogState.itemIds?.length || 1})}
-        description={deleteDialogState.message}
-        confirmText={t('common.delete')}
-        cancelText={t('common.cancel')}
-        loading={loading}
-        t={t} isRTL={isRTL}
-      />
     </div>
   );
 }

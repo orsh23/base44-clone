@@ -1,12 +1,12 @@
-
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
 import PageLayout from "@/components/common/PageLayout";
 import PageHeader from "@/components/common/PageHeader";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { LayoutDashboard, Calendar, AlertTriangle } from "lucide-react";
-import { format, parseISO, isValid } from 'date-fns';
 import { useLanguageHook } from '@/components/useLanguageHook';
 import LoadingSpinner from "@/components/ui/loading-spinner";
+import { Link } from 'react-router-dom';
+import { createPageUrl } from '@/components/utils/url';
 
 // Mockup for what an activity item might look like
 // In a real app, this would come from an entity or API call
@@ -23,40 +23,70 @@ const fetchRecentActivities = async () => {
   ];
 };
 
+const ActivityItem = React.memo(function ActivityItem({ activity, safeFormatDate, t, index }) {
+  // Ensure activity item itself is not null
+  if (!activity) {
+    return (
+      <li key={`activity-null-${index}`} className="text-sm text-gray-500 italic">
+        {t('dashboard.activity.invalidItem', { defaultValue: "Invalid activity item." })}
+      </li>
+    );
+  }
+
+  const displayDate = safeFormatDate(activity.date);
+  
+  return (
+    <li key={activity.id || `activity-${index}`} className="pb-3 border-b border-gray-200 dark:border-gray-700 last:border-b-0">
+      <p className="font-medium text-gray-800 dark:text-gray-100">{activity.title || t('dashboard.activity.untitled', { defaultValue: "Untitled Activity" })}</p>
+      <div className="text-xs text-gray-500 dark:text-gray-400 flex items-center mt-1">
+        <Calendar size={14} className="mr-1.5" />
+        <span>{displayDate}</span>
+      </div>
+    </li>
+  );
+});
+
 export default function DashboardPage() {
   const { t } = useLanguageHook();
   const [recentActivities, setRecentActivities] = useState([]);
   const [loadingActivities, setLoadingActivities] = useState(true);
   const [activityError, setActivityError] = useState(null);
 
-  useEffect(() => {
-    const loadActivities = async () => {
-      try {
-        setLoadingActivities(true);
-        const activities = await fetchRecentActivities();
-        setRecentActivities(activities);
-        setActivityError(null);
-      } catch (error) {
-        console.error("Error fetching recent activities:", error);
-        setActivityError(t('dashboard.errors.loadActivities', { defaultValue: "Could not load recent activities." }));
-      } finally {
-        setLoadingActivities(false);
-      }
-    };
-    loadActivities();
-  }, [t]);
+  const loadActivities = useCallback(async () => {
+    try {
+      setLoadingActivities(true);
+      const activities = await fetchRecentActivities();
+      setRecentActivities(activities);
+      setActivityError(null);
+    } catch (error) {
+      console.error("Error fetching recent activities:", error);
+      setActivityError(t('dashboard.errors.loadActivities', { defaultValue: "Could not load recent activities." }));
+    } finally {
+      setLoadingActivities(false);
+    }
+  }, [t]); // t is stable unless language changes
 
-  const safeFormatDate = (dateValue) => {
+  useEffect(() => {
+    loadActivities();
+  }, [loadActivities]);
+
+  const safeFormatDate = useCallback((dateValue) => {
     if (!dateValue) return t('common.unknownDate', { defaultValue: 'Unknown Date' });
     try {
-      const date = parseISO(dateValue);
-      if (!isValid(date)) return t('common.invalidDate', { defaultValue: 'Invalid Date' });
-      return format(date, 'PPp');
+      const date = new Date(dateValue);
+      if (isNaN(date.getTime())) return t('common.invalidDate', { defaultValue: 'Invalid Date' });
+      return date.toLocaleDateString() + ' ' + date.toLocaleTimeString();
     } catch (error) {
       console.warn('Error formatting date:', dateValue, error);
       return t('common.invalidDate', { defaultValue: 'Invalid Date' });
     }
-  };
+  }, [t]); // t is stable
+
+  const quickLinks = useMemo(() => [
+    { name: t('navigation.tasks', { defaultValue: "Tasks"}), path: createPageUrl('tasks') },
+    { name: t('navigation.providers', { defaultValue: "Providers"}), path: createPageUrl('networkmanagement') }, // Assuming networkmanagement is providers
+    { name: t('navigation.requestManagement', { defaultValue: "Request Management"}), path: createPageUrl('requestmanagement') },
+  ], [t]);
 
   return (
     <PageLayout>
@@ -90,28 +120,9 @@ export default function DashboardPage() {
             )}
             {!loadingActivities && !activityError && recentActivities && recentActivities.length > 0 && (
               <ul className="space-y-3">
-                {recentActivities.map((activity, index) => {
-                  // Ensure activity item itself is not null
-                  if (!activity) {
-                    return (
-                      <li key={`activity-null-${index}`} className="text-sm text-gray-500 italic">
-                        {t('dashboard.activity.invalidItem', { defaultValue: "Invalid activity item." })}
-                      </li>
-                    );
-                  }
-
-                  const displayDate = safeFormatDate(activity.date);
-                  
-                  return (
-                    <li key={activity.id || `activity-${index}`} className="pb-3 border-b border-gray-200 dark:border-gray-700 last:border-b-0">
-                      <p className="font-medium text-gray-800 dark:text-gray-100">{activity.title || t('dashboard.activity.untitled', { defaultValue: "Untitled Activity" })}</p>
-                      <div className="text-xs text-gray-500 dark:text-gray-400 flex items-center mt-1">
-                        <Calendar size={14} className="mr-1.5" />
-                        <span>{displayDate}</span>
-                      </div>
-                    </li>
-                  );
-                })}
+                {recentActivities.map((activity, index) => (
+                  <ActivityItem key={activity?.id || `activity-item-${index}`} activity={activity} safeFormatDate={safeFormatDate} t={t} index={index} />
+                ))}
               </ul>
             )}
             {!loadingActivities && !activityError && (!recentActivities || recentActivities.filter(a => a).length === 0) && (
@@ -126,9 +137,9 @@ export default function DashboardPage() {
           </CardHeader>
           <CardContent>
             <ul className="space-y-2">
-              <li><a href="/tasks" className="text-blue-600 hover:underline hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300">{t('navigation.tasks', { defaultValue: "Tasks"})}</a></li>
-              <li><a href="/providers" className="text-blue-600 hover:underline hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300">{t('navigation.providers', { defaultValue: "Providers"})}</a></li>
-              <li><a href="/requestmanagement" className="text-blue-600 hover:underline hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300">{t('navigation.requestManagement', { defaultValue: "Request Management"})}</a></li>
+              {quickLinks.map(link => (
+                 <li key={link.path}><Link to={link.path} className="text-blue-600 hover:underline hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300">{link.name}</Link></li>
+              ))}
             </ul>
           </CardContent>
         </Card>

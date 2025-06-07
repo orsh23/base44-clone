@@ -30,3 +30,6 @@ export function Badge({
     </div>
   );
 }
+
+// Also export as default for compatibility
+export default Badge;

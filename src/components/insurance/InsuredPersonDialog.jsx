@@ -1,15 +1,18 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogClose } from '@/components/ui/dialog';
+
+import React, { useEffect, useMemo } from 'react';
+import { useForm, Controller } from 'react-hook-form';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import DatePicker from '@/components/ui/date-picker';
-import FormField from '@/components/forms/FormField';
-import AddressSelector from '@/components/address-management/AddressSelector'; // Import AddressSelector
+import FormField from '@/components/shared/forms/FormField'; // Corrected path
+import AddressSelector from '@/components/address-management/AddressSelector';
 import { useLanguageHook } from '@/components/useLanguageHook';
 import { useToast } from '@/components/ui/use-toast';
 import { isValidEmail, isValidPhoneNumber } from '@/components/utils/validation';
+import BaseFormDialog from '@/components/shared/forms/BaseFormDialog';
+// Corrected entity import - import individually from specific files
+import { InsuredPerson } from '@/api/entities';
 
 const genderOptions = [
   { value: 'male', labelKey: 'gender.male', defaultValue: 'Male' },
@@ -37,21 +40,24 @@ const InsuredPersonDialog = ({ isOpen, onClose, onSubmit, personData }) => {
     identification: { type: '', number: '' },
   }), []);
 
-  const [formData, setFormData] = useState(initialFormData);
-  const [errors, setErrors] = useState({});
+  const { register, handleSubmit, setValue, watch, control, reset, formState: { errors } } = useForm({
+    defaultValues: initialFormData,
+  });
 
-  const translatedGenderOptions = useMemo(() => genderOptions.map(opt => ({...opt, label: t(opt.labelKey, {defaultValue: opt.defaultLabel})})), [t]);
-  const translatedIdTypeOptions = useMemo(() => idTypeOptions.map(opt => ({...opt, label: t(opt.labelKey, {defaultValue: opt.defaultLabel})})), [t]);
+  const formData = watch(); // To easily access current form values for controlled components
+
+  const translatedGenderOptions = useMemo(() => genderOptions.map(opt => ({...opt, label: t(opt.labelKey, {defaultValue: opt.defaultValue})})), [t]);
+  const translatedIdTypeOptions = useMemo(() => idTypeOptions.map(opt => ({...opt, label: t(opt.labelKey, {defaultValue: opt.defaultValue})})), [t]);
 
   useEffect(() => {
     if (personData) {
-      setFormData({
+      reset({
         full_name: personData.full_name || '',
         date_of_birth: personData.date_of_birth ? new Date(personData.date_of_birth) : null,
         gender: personData.gender || '',
-        contact: { 
+        contact: {
           phone: personData.contact?.phone || '',
-          email: personData.contact?.email || '' 
+          email: personData.contact?.email || ''
         },
         address_id: personData.address_id || null,
         address: { // Keep legacy if no address_id or if present
@@ -67,163 +73,166 @@ const InsuredPersonDialog = ({ isOpen, onClose, onSubmit, personData }) => {
         },
       });
     } else {
-      setFormData(initialFormData);
+      reset(initialFormData);
     }
-    setErrors({});
-  }, [personData, isOpen, initialFormData]);
+  }, [personData, isOpen, initialFormData, reset]);
 
-  const validate = () => {
-    const newErrors = {};
-    if (!formData.full_name) newErrors.full_name = t('validation.requiredField', { field: t('fields.fullName')});
-    if (!formData.identification.type) newErrors.id_type = t('validation.requiredField', { field: t('identification.type')});
-    if (!formData.identification.number) newErrors.id_number = t('validation.requiredField', { field: t('identification.number')});
-    if (formData.contact?.email && !isValidEmail(formData.contact.email)) newErrors.email = t('validation.invalidFormat', {field: t('common.email')});
-    if (formData.contact?.phone && !isValidPhoneNumber(formData.contact.phone)) newErrors.phone = t('validation.invalidFormat', {field: t('common.phone')});
-    // DOB might be optional depending on requirements
-    // Gender might be optional
-    setErrors(newErrors);
-    return Object.keys(newErrors).length === 0;
-  };
-
-  const handleSubmit = (e) => {
-    e.preventDefault();
-    if (validate()) {
-      const submissionData = {
-        ...formData,
-        date_of_birth: formData.date_of_birth ? formData.date_of_birth.toISOString().split('T')[0] : null, // Format for DB
-      };
-      // If address_id is present, remove legacy address object
-      if (submissionData.address_id) {
-          delete submissionData.address;
-      } else if (!Object.values(submissionData.address).some(val => val && val.trim() !== '')) {
-          // If address_id is null AND legacy address fields are all empty, send null for address
-          delete submissionData.address;
-      }
-      onSubmit(submissionData);
+  const internalHandleSubmit = (data) => {
+    const submissionData = {
+      ...data,
+      date_of_birth: data.date_of_birth ? data.date_of_birth.toISOString().split('T')[0] : null, // Format for DB
+    };
+    // If address_id is present, remove legacy address object
+    if (submissionData.address_id) {
+        delete submissionData.address;
+    } else if (!Object.values(submissionData.address).some(val => val && val.trim() !== '')) {
+        // If address_id is null AND legacy address fields are all empty, send null for address
+        delete submissionData.address;
     }
-  };
-  
-  const handleChange = (field, value) => {
-    setFormData(prev => ({ ...prev, [field]: value }));
-  };
-
-  const handleNestedChange = (mainField, subField, value) => {
-    setFormData(prev => ({
-      ...prev,
-      [mainField]: {
-        ...prev[mainField],
-        [subField]: value
-      }
-    }));
+    onSubmit(submissionData);
   };
 
   const handleAddressSelected = (newAddressId) => {
-    setFormData(prev => ({ ...prev, address_id: newAddressId, address: initialFormData.address })); // Clear legacy fields
+    setValue('address_id', newAddressId);
+    setValue('address', initialFormData.address); // Clear legacy fields
   };
-  
+
   const handleClearAddress = () => {
-    setFormData(prev => ({ ...prev, address_id: null }));
+    setValue('address_id', null);
   };
 
   if (!isOpen) return null;
 
   return (
-    <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle>
-            {personData?.id ? t('insuredPersons.editPerson', { defaultValue: 'Edit Insured Person' }) : t('insuredPersons.addPerson', { defaultValue: 'Add New Insured Person' })}
-          </DialogTitle>
-        </DialogHeader>
-        <form onSubmit={handleSubmit} className="space-y-6 py-4 px-1">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4">
-            <FormField label={t('fields.fullName', {defaultValue: "Full Name"})} error={errors.full_name} htmlFor="full_name">
-              <Input id="full_name" value={formData.full_name} onChange={(e) => handleChange('full_name', e.target.value)} />
-            </FormField>
-            <FormField label={t('common.dateOfBirthOptional', {defaultValue: "Date of Birth (Optional)"})} error={errors.date_of_birth} htmlFor="date_of_birth">
-                <DatePicker
-                    selected={formData.date_of_birth}
-                    onSelect={(date) => handleChange('date_of_birth', date)}
-                    className="w-full"
-                    placeholderText={t('common.selectDatePlaceholder', { defaultValue: 'Select a date' })}
-                />
-            </FormField>
-            <FormField label={t('common.genderOptional', {defaultValue: "Gender (Optional)"})} error={errors.gender} htmlFor="gender">
-              <Select value={formData.gender} onValueChange={(value) => handleChange('gender', value)}>
-                <SelectTrigger id="gender"><SelectValue placeholder={t('filters.selectGender', { defaultValue: 'Select Gender' })} /></SelectTrigger>
-                <SelectContent>{translatedGenderOptions.map(opt => <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>)}</SelectContent>
-              </Select>
-            </FormField>
-            <FormField label={t('common.phoneOptional', {defaultValue: "Phone (Optional)"})} error={errors.phone} htmlFor="phone">
-              <Input id="phone" value={formData.contact.phone} onChange={(e) => handleNestedChange('contact', 'phone', e.target.value)} />
-            </FormField>
-            <FormField label={t('common.emailOptional', {defaultValue: "Email (Optional)"})} error={errors.email} htmlFor="email">
-              <Input id="email" type="email" value={formData.contact.email} onChange={(e) => handleNestedChange('contact', 'email', e.target.value)} />
-            </FormField>
-          </div>
-
-          <fieldset className="border p-4 rounded-md mt-4">
-            <legend className="text-sm font-medium px-1">{t('insuredPersons.identification', {defaultValue: "Identification"})}</legend>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4 pt-2">
-                <FormField label={t('identification.type', {defaultValue: "ID Type"})} error={errors.id_type} htmlFor="id_type">
-                  <Select value={formData.identification.type} onValueChange={(value) => handleNestedChange('identification', 'type', value)}>
-                    <SelectTrigger id="id_type"><SelectValue placeholder={t('filters.selectIdType', { defaultValue: 'Select ID Type' })} /></SelectTrigger>
-                    <SelectContent>{translatedIdTypeOptions.map(opt => <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>)}</SelectContent>
-                  </Select>
-                </FormField>
-                <FormField label={t('identification.number', {defaultValue: "ID Number"})} error={errors.id_number} htmlFor="id_number">
-                  <Input id="id_number" value={formData.identification.number} onChange={(e) => handleNestedChange('identification', 'number', e.target.value)} />
-                </FormField>
-            </div>
-          </fieldset>
-          
-          <fieldset className="border p-4 rounded-md mt-4">
-            <legend className="text-sm font-medium px-1">{t('addresses.title', {defaultValue: "Address"})}</legend>
-             <AddressSelector
-                currentAddressId={formData.address_id}
-                onAddressSelected={handleAddressSelected}
-                onClearAddress={handleClearAddress}
-                entityType={t('insuredPersons.entityNameSingular', {defaultValue: "Insured Person"})}
-                t={t}
+    <BaseFormDialog
+      isOpen={isOpen}
+      onClose={onClose}
+      title={personData?.id ? t('insuredPersons.editPerson', { defaultValue: 'Edit Insured Person' }) : t('insuredPersons.addPerson', { defaultValue: 'Add New Insured Person' })}
+      onSubmit={handleSubmit(internalHandleSubmit)}
+      submitButtonText={personData?.id ? t('buttons.saveChanges', { defaultValue: 'Save Changes' }) : t('buttons.create', { defaultValue: 'Create Person' })}
+      cancelButtonText={t('buttons.cancel', { defaultValue: 'Cancel' })}
+      className="sm:max-w-2xl max-h-[90vh] overflow-y-auto" // Apply to dialog content
+    >
+      <div className="space-y-6 py-4 px-1"> {/* This div acts as the form body */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4">
+          <FormField label={t('fields.fullName', {defaultValue: "Full Name"})} error={errors.full_name?.message} htmlFor="full_name">
+            <Input id="full_name" {...register('full_name', { required: t('validation.requiredField', { field: t('fields.fullName')}) })} />
+          </FormField>
+          <FormField label={t('common.dateOfBirthOptional', {defaultValue: "Date of Birth (Optional)"})} error={errors.date_of_birth?.message} htmlFor="date_of_birth">
+              <Controller
+                  name="date_of_birth"
+                  control={control}
+                  render={({ field }) => (
+                      <DatePicker
+                          selected={field.value}
+                          onSelect={field.onChange}
+                          className="w-full"
+                          placeholderText={t('common.selectDatePlaceholder', { defaultValue: 'Select a date' })}
+                      />
+                  )}
+              />
+          </FormField>
+          <FormField label={t('common.genderOptional', {defaultValue: "Gender (Optional)"})} error={errors.gender?.message} htmlFor="gender">
+            <Controller
+              name="gender"
+              control={control}
+              render={({ field }) => (
+                <Select onValueChange={field.onChange} value={field.value}>
+                  <SelectTrigger id="gender"><SelectValue placeholder={t('filters.selectGender', { defaultValue: 'Select Gender' })} /></SelectTrigger>
+                  <SelectContent>{translatedGenderOptions.map(opt => <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>)}</SelectContent>
+                </Select>
+              )}
             />
-             {/* Fallback for legacy address if address_id is not set */}
-            {!formData.address_id && (
-                <div className="mt-4 space-y-3 pt-3 border-t">
-                    <p className="text-xs text-gray-500">{t('addresses.manualEntryNote', {defaultValue: "Or enter address manually (legacy):"})}</p>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4">
-                        <FormField label={t('fields.streetNameOptional', {defaultValue: "Street Name (Optional)"})} htmlFor="legacy_street_name">
-                            <Input id="legacy_street_name" value={formData.address.street_name} onChange={(e) => handleNestedChange('address', 'street_name', e.target.value)} />
-                        </FormField>
-                        <FormField label={t('fields.streetNumberOptional', {defaultValue: "Street No. (Optional)"})} htmlFor="legacy_street_number">
-                            <Input id="legacy_street_number" value={formData.address.street_number} onChange={(e) => handleNestedChange('address', 'street_number', e.target.value)} />
-                        </FormField>
-                        <FormField label={t('fields.cityOptional', {defaultValue: "City (Optional)"})} htmlFor="legacy_city">
-                            <Input id="legacy_city" value={formData.address.city} onChange={(e) => handleNestedChange('address', 'city', e.target.value)} />
-                        </FormField>
-                        <FormField label={t('fields.postalCodeOptional', {defaultValue: "Postal Code (Optional)"})} htmlFor="legacy_postal_code">
-                            <Input id="legacy_postal_code" value={formData.address.postal_code} onChange={(e) => handleNestedChange('address', 'postal_code', e.target.value)} />
-                        </FormField>
-                         <FormField label={t('fields.additionalInfoOptional', {defaultValue: "Additional Info (Optional)"})} htmlFor="legacy_additional_info" className="md:col-span-2">
-                            <Input id="legacy_additional_info" value={formData.address.additional_info} onChange={(e) => handleNestedChange('address', 'additional_info', e.target.value)} />
-                        </FormField>
-                    </div>
-                </div>
-            )}
-          </fieldset>
+          </FormField>
+          <FormField label={t('common.phoneOptional', {defaultValue: "Phone (Optional)"})} error={errors.contact?.phone?.message} htmlFor="phone">
+            <Input
+              id="phone"
+              {...register('contact.phone', {
+                validate: (value) => {
+                  if (value && !isValidPhoneNumber(value)) {
+                    return t('validation.invalidFormat', {field: t('common.phone')});
+                  }
+                  return true;
+                }
+              })}
+            />
+          </FormField>
+          <FormField label={t('common.emailOptional', {defaultValue: "Email (Optional)"})} error={errors.contact?.email?.message} htmlFor="email">
+            <Input
+              id="email"
+              type="email"
+              {...register('contact.email', {
+                validate: (value) => {
+                  if (value && !isValidEmail(value)) {
+                    return t('validation.invalidFormat', {field: t('common.email')});
+                  }
+                  return true;
+                }
+              })}
+            />
+          </FormField>
+        </div>
 
-          <DialogFooter className="mt-6">
-            <DialogClose asChild>
-              <Button type="button" variant="outline" onClick={onClose}>
-                {t('buttons.cancel', { defaultValue: 'Cancel' })}
-              </Button>
-            </DialogClose>
-            <Button type="submit">
-              {personData?.id ? t('buttons.saveChanges', { defaultValue: 'Save Changes' }) : t('buttons.create', { defaultValue: 'Create Person' })}
-            </Button>
-          </DialogFooter>
-        </form>
-      </DialogContent>
-    </Dialog>
+        <fieldset className="border p-4 rounded-md mt-4">
+          <legend className="text-sm font-medium px-1">{t('insuredPersons.identification', {defaultValue: "Identification"})}</legend>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4 pt-2">
+              <FormField label={t('identification.type', {defaultValue: "ID Type"})} error={errors.identification?.type?.message} htmlFor="id_type">
+                <Controller
+                  name="identification.type"
+                  control={control}
+                  rules={{ required: t('validation.requiredField', { field: t('identification.type')}) }}
+                  render={({ field }) => (
+                    <Select onValueChange={field.onChange} value={field.value}>
+                      <SelectTrigger id="id_type"><SelectValue placeholder={t('filters.selectIdType', { defaultValue: 'Select ID Type' })} /></SelectTrigger>
+                      <SelectContent>{translatedIdTypeOptions.map(opt => <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>)}</SelectContent>
+                    </Select>
+                  )}
+                />
+              </FormField>
+              <FormField label={t('identification.number', {defaultValue: "ID Number"})} error={errors.identification?.number?.message} htmlFor="id_number">
+                <Input
+                  id="id_number"
+                  {...register('identification.number', { required: t('validation.requiredField', { field: t('identification.number')}) })}
+                />
+              </FormField>
+          </div>
+        </fieldset>
+
+        <fieldset className="border p-4 rounded-md mt-4">
+          <legend className="text-sm font-medium px-1">{t('addresses.title', {defaultValue: "Address"})}</legend>
+           <AddressSelector
+              currentAddressId={formData.address_id}
+              onAddressSelected={handleAddressSelected}
+              onClearAddress={handleClearAddress}
+              entityType={t('insuredPersons.entityNameSingular', {defaultValue: "Insured Person"})}
+              t={t}
+          />
+           {/* Fallback for legacy address if address_id is not set */}
+          {!formData.address_id && (
+              <div className="mt-4 space-y-3 pt-3 border-t">
+                  <p className="text-xs text-gray-500">{t('addresses.manualEntryNote', {defaultValue: "Or enter address manually (legacy):"})}</p>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4">
+                      <FormField label={t('fields.streetNameOptional', {defaultValue: "Street Name (Optional)"})} htmlFor="legacy_street_name">
+                          <Input id="legacy_street_name" {...register('address.street_name')} />
+                      </FormField>
+                      <FormField label={t('fields.streetNumberOptional', {defaultValue: "Street No. (Optional)"})} htmlFor="legacy_street_number">
+                          <Input id="legacy_street_number" {...register('address.street_number')} />
+                      </FormField>
+                      <FormField label={t('fields.cityOptional', {defaultValue: "City (Optional)"})} htmlFor="legacy_city">
+                          <Input id="legacy_city" {...register('address.city')} />
+                      </FormField>
+                      <FormField label={t('fields.postalCodeOptional', {defaultValue: "Postal Code (Optional)"})} htmlFor="legacy_postal_code">
+                          <Input id="legacy_postal_code" {...register('address.postal_code')} />
+                      </FormField>
+                       <FormField label={t('fields.additionalInfoOptional', {defaultValue: "Additional Info (Optional)"})} htmlFor="legacy_additional_info" className="md:col-span-2">
+                          <Input id="legacy_additional_info" {...register('address.additional_info')} />
+                      </FormField>
+                  </div>
+              </div>
+          )}
+        </fieldset>
+      </div>
+    </BaseFormDialog>
   );
 };
 

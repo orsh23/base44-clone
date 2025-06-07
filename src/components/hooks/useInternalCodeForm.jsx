@@ -1,101 +1,62 @@
-import { useState, useEffect, useCallback } from 'react';
-import { useToast } from '@/components/ui/use-toast';
+// Content of components/hooks/useInternalCodeForm.js
+import { useForm } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import * as z from 'zod';
 import { InternalCode } from '@/api/entities';
-import { useLanguage } from '@/components/context/LanguageContext';
-import { createMessage } from '@/components/utils/messages';
+import { useToast } from '@/components/ui/use-toast';
+import { useLanguageHook } from '@/components/useLanguageHook';
 
-export function useInternalCodeForm(initialCode = null, onSuccess, dialogOpen = false) {
-  const { t } = useLanguage();
+const getInternalCodeSchema = (t) => z.object({
+  code_number: z.string().min(1, { message: t('validation.requiredField', { fieldName: t('internalCodes.fields.codeNumber') }) }),
+  description_en: z.string().min(1, { message: t('validation.requiredField', { fieldName: t('internalCodes.fields.descriptionEn') }) }),
+  description_he: z.string().min(1, { message: t('validation.requiredField', { fieldName: t('internalCodes.fields.descriptionHe') }) }),
+  category_id: z.string().optional().nullable(),
+  category_path: z.string().optional().nullable(),
+  tags: z.array(z.string()).optional().default([]),
+  is_billable: z.boolean().default(true),
+  is_active: z.boolean().default(true),
+});
+
+export function useInternalCodeForm(defaultValues, onSubmitSuccess) {
+  const { t } = useLanguageHook();
   const { toast } = useToast();
+  const internalCodeSchema = getInternalCodeSchema(t);
 
-  const getInitialState = () => ({
-    code_number: '',
-    description_en: '',
-    description_he: '',
-    category_id: '',
-    category_path: '',
-    tags: [],
-    is_billable: true,
-    is_active: true,
-    ...(initialCode ? {
-      ...initialCode,
-      tags: initialCode.tags || [],
-    } : {})
+  const form = useForm({
+    resolver: zodResolver(internalCodeSchema),
+    defaultValues: defaultValues || {
+      is_billable: true,
+      is_active: true,
+      tags: [],
+    },
   });
 
-  const [formData, setFormData] = useState(getInitialState());
-  const [errors, setErrors] = useState({});
-  const [isSubmitting, setIsSubmitting] = useState(false);
-
-  // Reset form when dialog closes
-  useEffect(() => {
-    if (!dialogOpen) {
-      resetForm();
-    }
-  }, [dialogOpen]);
-
-  // Reset form when initial data changes
-  useEffect(() => {
-    setFormData(getInitialState());
-  }, [initialCode]);
-
-  const updateField = useCallback((field, value) => {
-    setFormData(prev => ({ ...prev, [field]: value }));
-    if (Object.prototype.hasOwnProperty.call(errors, field)) {
-      setErrors(prev => ({ ...prev, [field]: null }));
-    }
-  }, [errors]);
-
-  const validate = useCallback(() => {
-    const newErrors = {};
-    if (!formData.code_number?.trim()) {
-      newErrors.code_number = t('validation.required', { field: t('internalCodes.codeNumber') });
-    }
-    if (!formData.description_en?.trim() && !formData.description_he?.trim()) {
-      newErrors.description_en = t('validation.requiredEither', { field: t('internalCodes.descriptionEn') });
-    }
-    setErrors(newErrors);
-    return Object.keys(newErrors).length === 0;
-  }, [formData, t]);
-
-  const resetForm = useCallback(() => {
-    setFormData(getInitialState());
-    setErrors({});
-    setIsSubmitting(false);
-  }, []);
-
-  const handleSubmit = useCallback(async (event) => {
-    if (event) event.preventDefault();
-    if (!validate()) return false;
-
-    setIsSubmitting(true);
+  const handleSubmit = form.handleSubmit(async (data) => {
     try {
-      let savedCode;
-      if (initialCode?.id) {
-        savedCode = await InternalCode.update(initialCode.id, formData);
-        toast(createMessage(t, 'success', 'update', 'internalCode'));
+      const dataToSave = {
+        ...data,
+        tags: Array.isArray(data.tags) ? data.tags : (data.tags ? String(data.tags).split(',').map(s => s.trim()).filter(Boolean) : []),
+      };
+      let result;
+      if (defaultValues?.id) {
+        result = await InternalCode.update(defaultValues.id, dataToSave);
+        toast({ title: t('internalCodes.updateSuccessTitle'), description: t('internalCodes.updateSuccessDetail', { name: data.code_number }) });
       } else {
-        savedCode = await InternalCode.create(formData);
-        toast(createMessage(t, 'success', 'create', 'internalCode'));
+        result = await InternalCode.create(dataToSave);
+        toast({ title: t('internalCodes.createSuccessTitle'), description: t('internalCodes.createSuccessDetail', { name: data.code_number }) });
       }
-      if (onSuccess) onSuccess(savedCode);
-      return true;
+      if (onSubmitSuccess) onSubmitSuccess(result);
+      return result;
     } catch (error) {
       console.error("Error saving internal code:", error);
-      toast(createMessage(t, 'error', initialCode?.id ? 'update' : 'create', 'internalCode', error));
-      return false;
-    } finally {
-      setIsSubmitting(false);
+      toast({
+        title: t('common.saveErrorTitle'),
+        description: error.message || t('common.saveErrorDetail', { entity: t('internalCodes.entityNameSingular') }),
+        variant: 'destructive',
+      });
+      throw error; // Re-throw to allow form to handle its state
     }
-  }, [formData, initialCode, onSuccess, t, toast, validate]);
+  });
 
-  return {
-    formData,
-    errors,
-    isSubmitting,
-    updateField,
-    handleSubmit,
-    resetForm,
-    validate
-  };
+  return { form, handleSubmit, isLoading: form.formState.isSubmitting };
 }

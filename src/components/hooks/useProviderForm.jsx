@@ -1,266 +1,88 @@
-import { useState, useEffect, useCallback } from 'react';
-import { useToast } from '@/components/ui/use-toast';
+// Content of components/hooks/useProviderForm.js
+import { useForm } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import * as z from 'zod';
 import { Provider } from '@/api/entities';
-import { useLanguage } from '../context/LanguageContext';
+import { useToast } from '@/components/ui/use-toast';
+import { useLanguageHook } from '@/components/useLanguageHook';
 
-// Hardcoded provider types - no dependencies on external modules
-const PROVIDER_TYPES = [
-  { value: 'hospital', label: 'Hospital' },
-  { value: 'clinic', label: 'Clinic' },
-  { value: 'imaging_center', label: 'Imaging Center' },
-  { value: 'laboratory', label: 'Laboratory' },
-  { value: 'other', label: 'Other' }
-];
+// Regex for Israeli Company/Dealer/Association number (9 digits)
+const ISRAELI_ID_REGEX = /^[0-9]{9}$/;
 
-// Hardcoded legal entity types - no dependencies on external modules
-const LEGAL_ENTITY_TYPES = [
-  { value: 'company', label: 'Company' },
-  { value: 'licensed_dealer', label: 'Licensed Dealer' },
-  { value: 'registered_association', label: 'Registered Association' }
-];
+const getProviderSchema = (t) => z.object({
+  name: z.object({
+    en: z.string().min(1, { message: t('validation.requiredField', { fieldName: t('fields.nameEn', {defaultValue: 'Name (EN)'})}) }).max(200),
+    he: z.string().min(1, { message: t('validation.requiredField', { fieldName: t('fields.nameHe', {defaultValue: 'Name (HE)'})}) }).max(200),
+  }),
+  provider_type: z.enum(['hospital', 'clinic', 'imaging_center', 'laboratory', 'other'], {
+    required_error: t('validation.requiredField', { fieldName: t('fields.providerType', {defaultValue: 'Provider Type'})}),
+  }),
+  legal: z.object({
+    type: z.enum(['company', 'licensed_dealer', 'registered_association'], {
+      required_error: t('validation.requiredField', { fieldName: t('fields.legalType', {defaultValue: 'Legal Type'})}),
+    }),
+    identifier: z.string()
+      .min(1, { message: t('validation.requiredField', { fieldName: t('fields.legalIdentifier', {defaultValue: 'Legal Identifier'})}) })
+      .regex(ISRAELI_ID_REGEX, { message: t('providers.validation.invalidLegalId', {defaultValue: 'Invalid Legal ID (must be 9 digits)'}) }),
+  }),
+  address_id: z.string().optional().nullable(), // For structured address
+  // Legacy contact fields (optional now if address_id is primary)
+  contact: z.object({
+    contact_person_name: z.string().max(200).optional().nullable(),
+    street_name: z.string().max(200).optional().nullable(),
+    street_number: z.string().max(20).optional().nullable(),
+    address: z.string().max(300).optional().nullable(), // Additional legacy address details
+    city: z.string().max(100).optional().nullable(),
+    postal_code: z.string().max(20).optional().nullable(),
+    phone: z.string().optional().nullable().refine(val => !val || /^\+?[0-9\-\s()]+$/.test(val), {
+      message: t('validation.invalidPhoneFormat', {defaultValue: 'Invalid phone number format.'}),
+    }),
+    email: z.string().email({ message: t('validation.invalidEmailFormat', {defaultValue: 'Invalid email address.'}) }).optional().nullable(),
+  }).optional(),
+  status: z.enum(['active', 'inactive']).default('active'),
+  notes: z.string().max(2000).optional().nullable(),
+});
 
-export function useProviderForm(initialProvider = null) {
-  const { t } = useLanguage();
+export function useProviderForm(defaultValues, onSubmitSuccess) {
+  const { t } = useLanguageHook();
   const { toast } = useToast();
-  const [allProviders, setAllProviders] = useState([]);
+  const providerSchema = getProviderSchema(t);
 
-  // Fixed base state
-  const baseState = {
-    name: { en: '', he: '' },
-    provider_type: 'hospital',
-    legal: { 
-      type: 'company',
-      identifier: '' 
+  const form = useForm({
+    resolver: zodResolver(providerSchema),
+    defaultValues: defaultValues || {
+      name: { en: '', he: '' },
+      provider_type: undefined, // Let placeholder show
+      legal: { type: undefined, identifier: '' },
+      contact: {},
+      status: 'active',
+      notes: '',
+      address_id: null,
     },
-    contact: { 
-      address: '', 
-      city: '', 
-      postal_code: '', 
-      phone: '', 
-      email: '' 
-    },
-    status: 'active',
-    notes: ''
-  };
+  });
 
-  const [formData, setFormData] = useState(baseState);
-  const [errors, setErrors] = useState({});
-  const [isSubmitting, setIsSubmitting] = useState(false);
-
-  // Fetch providers once for city suggestions
-  useEffect(() => {
-    async function fetchProviders() {
-      try {
-        const result = await Provider.list();
-        setAllProviders(Array.isArray(result) ? result : []);
-      } catch (error) {
-        console.error("Error fetching providers:", error);
-      }
-    }
-    fetchProviders();
-  }, []);
-
-  // Set initial form data when initialProvider changes
-  useEffect(() => {
-    if (initialProvider && typeof initialProvider === 'object') {
-      // Create a safe copy of initial provider
-      const safeProvider = {
-        ...baseState,
-        ...initialProvider,
-        name: {
-          en: initialProvider.name?.en || '',
-          he: initialProvider.name?.he || ''
-        },
-        legal: {
-          type: initialProvider.legal?.type || 'company',
-          identifier: initialProvider.legal?.identifier || ''
-        },
-        contact: {
-          address: initialProvider.contact?.address || '',
-          city: initialProvider.contact?.city || '',
-          postal_code: initialProvider.contact?.postal_code || '',
-          phone: initialProvider.contact?.phone || '',
-          email: initialProvider.contact?.email || ''
-        },
-        status: initialProvider.status || 'active',
-        notes: initialProvider.notes || ''
-      };
-      setFormData(safeProvider);
-    } else {
-      setFormData(baseState);
-    }
-    
-    // Clear errors when initializing
-    setErrors({});
-  }, [initialProvider]);
-
-  // Update a field at the root level
-  function updateField(field, value) {
-    setFormData(prev => ({
-      ...prev,
-      [field]: value
-    }));
-    
-    // Clear error for this field
-    if (errors[field]) {
-      setErrors(prev => {
-        const newErrors = { ...prev };
-        delete newErrors[field];
-        return newErrors;
-      });
-    }
-  }
-
-  // Update a nested field (for objects like name, legal, contact)
-  function updateNestedField(objectField, nestedField, value) {
-    setFormData(prev => ({
-      ...prev,
-      [objectField]: {
-        ...(prev[objectField] || {}),
-        [nestedField]: value
-      }
-    }));
-    
-    // Clear error for this nested field
-    if (errors[objectField] && errors[objectField][nestedField]) {
-      setErrors(prev => {
-        const newErrors = { ...prev };
-        if (newErrors[objectField]) {
-          const newNestedErrors = { ...newErrors[objectField] };
-          delete newNestedErrors[nestedField];
-          
-          // If no more nested errors, remove the parent error object
-          if (Object.keys(newNestedErrors).length === 0) {
-            delete newErrors[objectField];
-          } else {
-            newErrors[objectField] = newNestedErrors;
-          }
-        }
-        return newErrors;
-      });
-    }
-  }
-
-  // Validate the form data
-  function validate() {
-    const newErrors = {};
-    
-    // Validate name (at least one language required)
-    if (!formData.name?.en?.trim() && !formData.name?.he?.trim()) {
-      newErrors.name = { en: t('validation.requiredEither', { field: t('providers.name') }) };
-    }
-    
-    // Validate provider type
-    if (!formData.provider_type) {
-      newErrors.provider_type = t('validation.required', { field: t('providers.providerType') });
-    }
-    
-    // Validate legal identifier if legal type is set
-    if (formData.legal?.type && !formData.legal?.identifier?.trim()) {
-      newErrors.legal = { 
-        identifier: t('validation.required', { field: t('providers.legalIdentifier') })
-      };
-    } else if (
-      formData.legal?.type && 
-      formData.legal?.identifier && 
-      !/^[0-9]{9}$/.test(formData.legal.identifier)
-    ) {
-      newErrors.legal = {
-        identifier: t('validation.invalidIdPattern', { defaultValue: "Identifier must be 9 digits." })
-      };
-    }
-    
-    // Validate contact fields
-    const contactErrors = {};
-    
-    if (!formData.contact?.address?.trim()) {
-      contactErrors.address = t('validation.required', { field: t('providers.address') });
-    }
-    
-    if (!formData.contact?.city?.trim()) {
-      contactErrors.city = t('validation.required', { field: t('providers.city') });
-    }
-    
-    if (formData.contact?.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.contact.email)) {
-      contactErrors.email = t('validation.invalidEmail');
-    }
-    
-    if (formData.contact?.phone && !/^\+?[0-9\-\s()]{7,20}$/.test(formData.contact.phone)) {
-      contactErrors.phone = t('validation.invalidPhone');
-    }
-    
-    if (Object.keys(contactErrors).length > 0) {
-      newErrors.contact = contactErrors;
-    }
-    
-    // Validate status
-    if (!formData.status) {
-      newErrors.status = t('validation.required', { field: t('common.status') });
-    }
-    
-    // Update errors state
-    setErrors(newErrors);
-    
-    // Form is valid if there are no errors
-    return Object.keys(newErrors).length === 0;
-  }
-
-  // Submit the form
-  async function handleSubmit(event) {
-    if (event && event.preventDefault) {
-      event.preventDefault();
-    }
-    
-    if (!validate()) {
-      return false;
-    }
-    
-    setIsSubmitting(true);
-    
+  const handleSubmit = form.handleSubmit(async (data) => {
     try {
-      if (initialProvider?.id) {
-        await Provider.update(initialProvider.id, formData);
-        toast({ 
-          title: t('providers.updateSuccess', { defaultValue: 'Provider updated successfully.' })
-        });
+      let result;
+      if (defaultValues?.id) {
+        result = await Provider.update(defaultValues.id, data);
+        toast({ title: t('providers.updateSuccessTitle'), description: t('providers.updateSuccessDetail', { name: data.name.en || data.name.he }) });
       } else {
-        await Provider.create(formData);
-        toast({ 
-          title: t('providers.createSuccess', { defaultValue: 'Provider created successfully.' })
-        });
+        result = await Provider.create(data);
+        toast({ title: t('providers.createSuccessTitle'), description: t('providers.createSuccessDetail', { name: data.name.en || data.name.he }) });
       }
-      return true;
+      if (onSubmitSuccess) onSubmitSuccess(result);
+      return result;
     } catch (error) {
       console.error("Error saving provider:", error);
       toast({
-        variant: "destructive",
-        title: t('providers.saveError', { defaultValue: 'Error saving provider.' }),
-        description: error.message
+        title: t('common.saveErrorTitle'),
+        description: error.message || t('common.saveErrorDetail', { entity: t('providers.entityNameSingular') }),
+        variant: 'destructive',
       });
-      return false;
-    } finally {
-      setIsSubmitting(false);
+      throw error; // Re-throw to allow form to handle its state
     }
-  }
+  });
 
-  // Reset the form to initial state
-  function resetForm() {
-    setFormData(baseState);
-    setErrors({});
-  }
-
-  return {
-    formData,
-    errors,
-    isSubmitting,
-    updateField,
-    updateNestedField,
-    handleSubmit,
-    resetForm,
-    validate,
-    // Safely return array data
-    allProvidersDataForCities: allProviders,
-    providerTypeOptions: PROVIDER_TYPES,
-    legalEntityTypeOptions: LEGAL_ENTITY_TYPES
-  };
+  return { form, handleSubmit, isLoading: form.formState.isSubmitting };
 }

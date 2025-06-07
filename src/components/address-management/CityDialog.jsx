@@ -1,99 +1,109 @@
-import React, { useState, useEffect } from 'react';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogClose } from '@/components/ui/dialog';
+
+import React, { useEffect } from 'react';
+import { useForm, Controller } from 'react-hook-form';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import BilingualInput from '@/components/forms/BilingualInput'; // Assuming this component exists
-import FormField from '@/components/forms/FormField'; // Assuming this component exists
+import { Label } from '@/components/ui/label'; // Label is imported but not explicitly used in the JSX below
+import { useLanguageHook } from '@/components/useLanguageHook';
+import { City } from '@/api/entities'; // Assuming this is for type definition elsewhere
+import { useToast } from "@/components/ui/use-toast"; // Imported but not used in this snippet
+import FormField from '@/components/shared/forms/FormField'; // Corrected path
+import BilingualInput from '@/components/forms/BilingualInput'; // Re-added as it's used in the JSX
 
-const CityDialog = ({ isOpen, onClose, onSubmit, city, t }) => {
-  const [formData, setFormData] = useState({
-    name_en: '',
-    name_he: '',
-    code: '',
+const CityDialog = ({ isOpen, onClose, onSave, cityData, isSaving }) => {
+  const { t } = useLanguageHook();
+
+  const {
+    control,
+    handleSubmit,
+    reset,
+    formState: { errors },
+  } = useForm({
+    defaultValues: {
+      name_en: '',
+      name_he: '',
+      code: '',
+    },
+    mode: 'onTouched', // Validate on blur/change
   });
-  const [errors, setErrors] = useState({});
 
   useEffect(() => {
-    if (city) {
-      setFormData({
-        name_en: city.name_en || '',
-        name_he: city.name_he || '',
-        code: city.code || '',
+    if (isOpen) {
+      // Reset form fields when dialog opens or cityData changes
+      reset({
+        name_en: cityData?.name_en || '',
+        name_he: cityData?.name_he || '',
+        code: cityData?.code || '',
       });
-    } else {
-      setFormData({ name_en: '', name_he: '', code: '' });
     }
-    setErrors({}); // Clear errors when dialog opens or city changes
-  }, [city, isOpen]);
-
-  const validate = () => {
-    const newErrors = {};
-    if (!formData.name_en) newErrors.name_en = t('validation.requiredField', { field: t('fields.nameEn', {defaultValue: 'Name (English)'})});
-    if (!formData.name_he) newErrors.name_he = t('validation.requiredField', { field: t('fields.nameHe', {defaultValue: 'Name (Hebrew)'})});
-    // Add more validation if needed (e.g., code format)
-    setErrors(newErrors);
-    return Object.keys(newErrors).length === 0;
-  };
-
-  const handleSubmit = (e) => {
-    e.preventDefault();
-    if (validate()) {
-      onSubmit(formData);
-    }
-  };
-
-  const handleBilingualChange = (lang, field, value) => {
-    setFormData(prev => ({ ...prev, [field]: value }));
-  };
-  
-  const handleChange = (e) => {
-    const { name, value } = e.target;
-    setFormData(prev => ({ ...prev, [name]: value }));
-  };
-
-  if (!isOpen) return null;
+  }, [cityData, isOpen, reset]);
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
       <DialogContent className="sm:max-w-[500px]">
         <DialogHeader>
           <DialogTitle>
-            {city ? t('cities.editTitle', { defaultValue: 'Edit City' }) : t('cities.addTitle', { defaultValue: 'Add New City' })}
+            {cityData ? t('cities.editTitle', { defaultValue: 'Edit City' }) : t('cities.addTitle', { defaultValue: 'Add New City' })}
           </DialogTitle>
         </DialogHeader>
-        <form onSubmit={handleSubmit} className="space-y-4 py-4">
-          <BilingualInput
-            labelEn={t('fields.nameEn', { defaultValue: 'Name (English)' })}
-            labelHe={t('fields.nameHe', { defaultValue: 'Name (Hebrew)' })}
-            valueEn={formData.name_en}
-            valueHe={formData.name_he}
-            onChangeEn={(value) => handleBilingualChange('en', 'name_en', value)}
-            onChangeHe={(value) => handleBilingualChange('he', 'name_he', value)}
-            fieldId="cityName"
-            errorEn={errors.name_en}
-            errorHe={errors.name_he}
-            dir={'ltr'} // BilingualInput might handle internal RTL for Hebrew field
+        <form onSubmit={handleSubmit(onSave)} className="space-y-4 py-4">
+          {/* Bilingual Input for name_en and name_he */}
+          <Controller
+            name="name_en"
+            control={control}
+            rules={{ required: t('validation.requiredField', { field: t('fields.nameEn', {defaultValue: 'Name (English)'}) }) }}
+            render={({ field: { onChange: onChangeEn, value: valueEn } }) => (
+              <Controller
+                name="name_he"
+                control={control}
+                rules={{ required: t('validation.requiredField', { field: t('fields.nameHe', {defaultValue: 'Name (Hebrew)'}) }) }}
+                render={({ field: { onChange: onChangeHe, value: valueHe } }) => (
+                  <BilingualInput
+                    labelEn={t('fields.nameEn', { defaultValue: 'Name (English)' })}
+                    labelHe={t('fields.nameHe', { defaultValue: 'Name (Hebrew)' })}
+                    valueEn={valueEn}
+                    valueHe={valueHe}
+                    onChangeEn={onChangeEn}
+                    onChangeHe={onChangeHe}
+                    fieldId="cityName"
+                    errorEn={errors.name_en?.message}
+                    errorHe={errors.name_he?.message}
+                    dir={'ltr'}
+                  />
+                )}
+              />
+            )}
           />
-          
-          <FormField label={t('fields.code', { defaultValue: 'Code' })} error={errors.code} htmlFor="code">
-            <Input
-              id="code"
-              name="code"
-              value={formData.code}
-              onChange={handleChange}
-              placeholder={t('cities.codePlaceholder', { defaultValue: 'e.g., IL-POST-123' })}
-            />
-          </FormField>
+
+          {/* Code Input */}
+          <Controller
+            name="code"
+            control={control}
+            // Add validation rules for code if necessary (e.g., required)
+            // rules={{ required: t('validation.requiredField', { field: t('fields.code', { defaultValue: 'Code' }) }) }}
+            render={({ field }) => (
+              <FormField label={t('fields.code', { defaultValue: 'Code' })} error={errors.code?.message} htmlFor="code">
+                <Input
+                  id="code"
+                  placeholder={t('cities.codePlaceholder', { defaultValue: 'e.g., IL-POST-123' })}
+                  {...field} // Spreads name, value, onChange, onBlur, ref
+                />
+              </FormField>
+            )}
+          />
 
           <DialogFooter>
-            <DialogClose asChild>
-              <Button type="button" variant="outline" onClick={onClose}>
-                {t('buttons.cancel', { defaultValue: 'Cancel' })}
-              </Button>
-            </DialogClose>
-            <Button type="submit">
-              {city ? t('buttons.saveChanges', { defaultValue: 'Save Changes' }) : t('buttons.create', { defaultValue: 'Create' })}
+            <Button
+              type="button"
+              variant="outline"
+              onClick={onClose}
+              disabled={isSaving} // Disable cancel button while saving
+            >
+              {t('buttons.cancel', { defaultValue: 'Cancel' })}
+            </Button>
+            <Button type="submit" disabled={isSaving}>
+              {cityData ? t('buttons.saveChanges', { defaultValue: 'Save Changes' }) : t('buttons.create', { defaultValue: 'Create' })}
             </Button>
           </DialogFooter>
         </form>

@@ -1,39 +1,42 @@
 
+
 // Provider-related constants
 export const PROVIDER_TYPES = [
-    { value: 'hospital', labelKey: 'providers.types.hospital', defaultValue: 'Hospital' },
-    { value: 'clinic', labelKey: 'providers.types.clinic', defaultValue: 'Clinic' },
-    { value: 'imaging_center', labelKey: 'providers.types.imaging_center', defaultValue: 'Imaging Center' },
-    { value: 'laboratory', labelKey: 'providers.types.laboratory', defaultValue: 'Laboratory' },
-    { value: 'other', labelKey: 'providers.types.other', defaultValue: 'Other' }
+  { value: 'hospital', label: 'Hospital', labelKey: 'providerTypes.hospital' },
+  { value: 'clinic', label: 'Clinic', labelKey: 'providerTypes.clinic' },
+  { value: 'imaging_center', label: 'Imaging Center', labelKey: 'providerTypes.imaging_center' },
+  { value: 'laboratory', label: 'Laboratory', labelKey: 'providerTypes.laboratory' },
+  { value: 'other', label: 'Other', labelKey: 'providerTypes.other' }
 ];
 
 export const PROVIDER_LEGAL_TYPES = [
-    { value: 'company', labelKey: 'providers.legalTypes.company', defaultValue: 'Company' },
-    { value: 'licensed_dealer', labelKey: 'providers.legalTypes.licensed_dealer', defaultValue: 'Licensed Dealer' },
-    { value: 'registered_association', labelKey: 'providers.legalTypes.registered_association', defaultValue: 'Registered Association' }
+  { value: 'company', label: 'Company', labelKey: 'legalTypes.company' },
+  { value: 'licensed_dealer', label: 'Licensed Dealer', labelKey: 'legalTypes.licensed_dealer' },
+  { value: 'registered_association', label: 'Registered Association', labelKey: 'legalTypes.registered_association' }
 ];
 
 export const PROVIDER_STATUSES = [
-    { value: 'active', labelKey: 'common.status.active', defaultValue: 'Active' },
-    { value: 'inactive', labelKey: 'common.status.inactive', defaultValue: 'Inactive' }
+  { value: 'active', label: 'Active', labelKey: 'status.active' },
+  { value: 'inactive', label: 'Inactive', labelKey: 'status.inactive' }
 ];
 
 // Doctor-related constants
-export const DOCTOR_SPECIALTIES = [
-    { value: 'general_practice', labelKey: 'doctors.specialties.general_practice', defaultValue: 'General Practice' },
-    { value: 'cardiology', labelKey: 'doctors.specialties.cardiology', defaultValue: 'Cardiology' },
-    { value: 'dermatology', labelKey: 'doctors.specialties.dermatology', defaultValue: 'Dermatology' },
-    { value: 'endocrinology', labelKey: 'doctors.specialties.endocrinology', defaultValue: 'Endocrinology' },
-    { value: 'gastroenterology', labelKey: 'doctors.specialties.gastroenterology', defaultValue: 'Gastroenterology' },
-    { value: 'neurology', labelKey: 'doctors.specialties.neurology', defaultValue: 'Neurology' },
-    { value: 'oncology', labelKey: 'doctors.specialties.oncology', defaultValue: 'Oncology' },
-    { value: 'ophthalmology', labelKey: 'doctors.specialties.ophthalmology', defaultValue: 'Ophthalmology' },
-    { value: 'orthopedics', labelKey: 'doctors.specialties.orthopedics', defaultValue: 'Orthopedics' },
-    { value: 'pediatrics', labelKey: 'doctors.specialties.pediatrics', defaultValue: 'Pediatrics' },
-    { value: 'psychiatry', labelKey: 'doctors.specialties.psychiatry', defaultValue: 'Psychiatry' },
-    { value: 'radiology', labelKey: 'doctors.specialties.radiology', defaultValue: 'Radiology' },
-    { value: 'other', labelKey: 'doctors.specialties.other', defaultValue: 'Other' }
+export const DOCTOR_STATUSES = [
+  { value: 'active', label: 'Active', labelKey: 'status.active' },
+  { value: 'inactive', label: 'Inactive', labelKey: 'status.inactive' }
+];
+
+export const MEDICAL_SPECIALTIES = [
+  { value: 'cardiology', label: 'Cardiology', labelKey: 'specialties.cardiology' },
+  { value: 'orthopedics', label: 'Orthopedics', labelKey: 'specialties.orthopedics' },
+  { value: 'neurology', label: 'Neurology', labelKey: 'specialties.neurology' },
+  { value: 'general_medicine', label: 'General Medicine', labelKey: 'specialties.general_medicine' },
+  { value: 'surgery', label: 'Surgery', labelKey: 'specialties.surgery' },
+  { value: 'pediatrics', label: 'Pediatrics', labelKey: 'specialties.pediatrics' },
+  { value: 'psychiatry', label: 'Psychiatry', labelKey: 'specialties.psychiatry' },
+  { value: 'dermatology', label: 'Dermatology', labelKey: 'specialties.dermatology' },
+  { value: 'ophthalmology', label: 'Ophthalmology', labelKey: 'specialties.ophthalmology' },
+  { value: 'other', label: 'Other', labelKey: 'specialties.other' }
 ];
 
 // Common constants
@@ -55,80 +58,13 @@ export const LANGUAGES = [
     { value: 'fr', labelKey: 'languages.fr', defaultValue: 'French' }
 ];
 
-// Status constants
-export const GENERAL_STATUSES = [
-    { value: 'active', labelKey: 'common.status.active', defaultValue: 'Active' },
-    { value: 'inactive', labelKey: 'common.status.inactive', defaultValue: 'Inactive' },
-    { value: 'pending', labelKey: 'common.status.pending', defaultValue: 'Pending' },
-    { value: 'archived', labelKey: 'common.status.archived', defaultValue: 'Archived' }
-];
-
-// Basic City Options
-export const CITIES_OLD = [
-    { value: 'tel_aviv', labelKey: 'cities.tel_aviv', defaultValue: 'Tel Aviv' },
-    { value: 'jerusalem', labelKey: 'cities.jerusalem', defaultValue: 'Jerusalem' },
-    { value: 'haifa', labelKey: 'cities.haifa', defaultValue: 'Haifa' },
-    { value: 'rishon_lezion', labelKey: 'cities.rishon_lezion', defaultValue: 'Rishon LeZion' },
-    { value: 'petah_tikva', labelKey: 'cities.petah_tikva', defaultValue: 'Petah Tikva' },
-    { value: 'ashdod', labelKey: 'cities.ashdod', defaultValue: 'Ashdod' },
-    { value: 'netanya', labelKey: 'cities.netanya', defaultValue: 'Netanya' },
-    { value: 'beer_sheva', labelKey: 'cities.beer_sheva', defaultValue: 'Beer Sheva' },
-    { value: 'holon', labelKey: 'cities.holon', defaultValue: 'Holon' },
-    { value: 'bnei_brak', labelKey: 'cities.bnei_brak', defaultValue: 'Bnei Brak' },
-    // Add more as needed
-];
-
-// Doctor Specialties
-export const DOCTOR_SPECIALTIES_OLD = [
-    { value: 'cardiology', labelKey: 'doctors.specialty.cardiology', defaultValue: 'Cardiology' },
-    { value: 'dermatology', labelKey: 'doctors.specialty.dermatology', defaultValue: 'Dermatology' },
-    { value: 'endocrinology', labelKey: 'doctors.specialty.endocrinology', defaultValue: 'Endocrinology' },
-    { value: 'gastroenterology', labelKey: 'doctors.specialty.gastroenterology', defaultValue: 'Gastroenterology' },
-    { value: 'hematology', labelKey: 'doctors.specialty.hematology', defaultValue: 'Hematology' },
-    { value: 'infectious_disease', labelKey: 'doctors.specialty.infectious_disease', defaultValue: 'Infectious Disease' },
-    { value: 'internal_medicine', labelKey: 'doctors.specialty.internal_medicine', defaultValue: 'Internal Medicine' },
-    { value: 'nephrology', labelKey: 'doctors.specialty.nephrology', defaultValue: 'Nephrology' },
-    { value: 'neurology', labelKey: 'doctors.specialty.neurology', defaultValue: 'Neurology' },
-    { value: 'oncology', labelKey: 'doctors.specialty.oncology', defaultValue: 'Oncology' },
-    { value: 'ophthalmology', labelKey: 'doctors.specialty.ophthalmology', defaultValue: 'Ophthalmology' },
-    { value: 'orthopedics', labelKey: 'doctors.specialty.orthopedics', defaultValue: 'Orthopedics' },
-    { value: 'otolaryngology', labelKey: 'doctors.specialty.otolaryngology', defaultValue: 'Otolaryngology (ENT)' },
-    { value: 'pediatrics', labelKey: 'doctors.specialty.pediatrics', defaultValue: 'Pediatrics' },
-    { value: 'psychiatry', labelKey: 'doctors.specialty.psychiatry', defaultValue: 'Psychiatry' },
-    { value: 'pulmonology', labelKey: 'doctors.specialty.pulmonology', defaultValue: 'Pulmonology' },
-    { value: 'radiology', labelKey: 'doctors.specialty.radiology', defaultValue: 'Radiology' },
-    { value: 'rheumatology', labelKey: 'doctors.specialty.rheumatology', defaultValue: 'Rheumatology' },
-    { value: 'surgery_general', labelKey: 'doctors.specialty.surgery_general', defaultValue: 'Surgery (General)' },
-    { value: 'urology', labelKey: 'doctors.specialty.urology', defaultValue: 'Urology' },
-    { value: 'gynecology', labelKey: 'doctors.specialty.gynecology', defaultValue: 'Gynecology & Obstetrics' },
-    { value: 'family_medicine', labelKey: 'doctors.specialty.family_medicine', defaultValue: 'Family Medicine' },
-    { value: 'anesthesiology', labelKey: 'doctors.specialty.anesthesiology', defaultValue: 'Anesthesiology' },
-    { value: 'emergency_medicine', labelKey: 'doctors.specialty.emergency_medicine', defaultValue: 'Emergency Medicine' },
-    { value: 'pathology', labelKey: 'doctors.specialty.pathology', defaultValue: 'Pathology' },
-    { value: 'physical_medicine', labelKey: 'doctors.specialty.physical_medicine', defaultValue: 'Physical Medicine & Rehabilitation' },
-    { value: 'plastic_surgery', labelKey: 'doctors.specialty.plastic_surgery', defaultValue: 'Plastic Surgery' },
-    { value: 'allergy_immunology', labelKey: 'doctors.specialty.allergy_immunology', defaultValue: 'Allergy & Immunology' },
-    { value: 'other', labelKey: 'doctors.specialty.other', defaultValue: 'Other' }
-];
-
-// Spoken Languages
-export const LANGUAGES_OLD = [
-    { value: 'en', labelKey: 'languages.en', defaultValue: 'English' },
-    { value: 'he', labelKey: 'languages.he', defaultValue: 'Hebrew' },
-    { value: 'ar', labelKey: 'languages.ar', defaultValue: 'Arabic' },
-    { value: 'ru', labelKey: 'languages.ru', defaultValue: 'Russian' },
-    { value: 'fr', labelKey: 'languages.fr', defaultValue: 'French' },
-    { value: 'es', labelKey: 'languages.es', defaultValue: 'Spanish' },
-    { value: 'de', labelKey: 'languages.de', defaultValue: 'German' },
-    { value: 'am', labelKey: 'languages.am', defaultValue: 'Amharic' },
-    // Add more as needed
-];
-
-// Doctor Statuses (used in dialogs typically)
-export const DOCTOR_STATUSES = [
-    { value: 'active', labelKey: 'doctors.status.active', defaultValue: 'Active' },
-    { value: 'inactive', labelKey: 'doctors.status.inactive', defaultValue: 'Inactive' },
-    // { value: 'pending', labelKey: 'doctors.status.pending', defaultValue: 'Pending Approval' } // Example
+// Common status options
+export const COMMON_STATUSES = [
+  { value: 'active', label: 'Active', labelKey: 'status.active' },
+  { value: 'inactive', label: 'Inactive', labelKey: 'status.inactive' },
+  { value: 'pending', label: 'Pending', labelKey: 'status.pending' },
+  { value: 'suspended', label: 'Suspended', labelKey: 'status.suspended' },
+  { value: 'terminated', label: 'Terminated', labelKey: 'status.terminated' }
 ];
 
 // Experience Years (used in dialogs and can be used for filters)
@@ -138,52 +74,6 @@ export const EXPERIENCE_YEARS = [
     { value: '10_to_20', labelKey: 'doctors.experienceYears.10to20', defaultLabel: '10-20 years' },
     { value: 'more_than_20', labelKey: 'doctors.experienceYears.moreThan20', defaultLabel: 'More than 20 years' }
 ];
-
-
-// Provider Types
-export const PROVIDER_TYPES_OLD = [
-    { value: 'hospital', labelKey: 'providers.types.hospital', defaultValue: 'Hospital' },
-    { value: 'clinic', labelKey: 'providers.types.clinic', defaultValue: 'Clinic' },
-    { value: 'imaging_center', labelKey: 'providers.types.imaging_center', defaultValue: 'Imaging Center' },
-    { value: 'laboratory', labelKey: 'providers.types.laboratory', defaultValue: 'Laboratory' },
-    { value: 'pharmacy', labelKey: 'providers.types.pharmacy', defaultValue: 'Pharmacy' },
-    { value: 'rehabilitation_center', labelKey: 'providers.types.rehabilitation_center', defaultValue: 'Rehabilitation Center' },
-    { value: 'home_health_agency', labelKey: 'providers.types.home_health_agency', defaultValue: 'Home Health Agency' },
-    { value: 'other', labelKey: 'providers.types.other', defaultValue: 'Other' },
-];
-
-// Provider Legal Entity Types
-export const PROVIDER_LEGAL_TYPES_OLD = [
-    { value: 'company', labelKey: 'providers.legalTypes.company', defaultValue: 'Company (Ltd.)' },
-    { value: 'licensed_dealer', labelKey: 'providers.legalTypes.licensed_dealer', defaultValue: 'Licensed Dealer (Osek Murshe)' },
-    { value: 'exempt_dealer', labelKey: 'providers.legalTypes.exempt_dealer', defaultValue: 'Exempt Dealer (Osek Patur)' },
-    { value: 'registered_association', labelKey: 'providers.legalTypes.registered_association', defaultValue: 'Registered Association (Amuta)' },
-    { value: 'public_benefit_company', labelKey: 'providers.legalTypes.public_benefit_company', defaultValue: 'Public Benefit Company (Chevra LeToelet HaTzibur)' },
-    { value: 'government_entity', labelKey: 'providers.legalTypes.government_entity', defaultValue: 'Government Entity' },
-    { value: 'partnership', labelKey: 'providers.legalTypes.partnership', defaultValue: 'Partnership' },
-    { value: 'other', labelKey: 'providers.legalTypes.other', defaultValue: 'Other' },
-];
-
-// Provider Statuses
-export const PROVIDER_STATUSES_OLD = [
-    { value: 'active', labelKey: 'providers.status.active', defaultValue: 'Active' },
-    { value: 'inactive', labelKey: 'providers.status.inactive', defaultValue: 'Inactive' },
-    { value: 'pending_approval', labelKey: 'providers.status.pending_approval', defaultValue: 'Pending Approval' },
-    { value: 'suspended', labelKey: 'providers.status.suspended', defaultValue: 'Suspended' },
-];
-
-// General Statuses (can be used across entities)
-export const GENERAL_STATUSES_OLD = [
-    { value: 'active', labelKey: 'common.status.active', defaultValue: 'Active' },
-    { value: 'inactive', labelKey: 'common.status.inactive', defaultValue: 'Inactive' },
-    { value: 'pending', labelKey: 'common.status.pending', defaultValue: 'Pending' },
-    { value: 'draft', labelKey: 'common.status.draft', defaultValue: 'Draft' },
-    { value: 'approved', labelKey: 'common.status.approved', defaultValue: 'Approved' },
-    { value: 'rejected', labelKey: 'common.status.rejected', defaultValue: 'Rejected' },
-    { value: 'expired', labelKey: 'common.status.expired', defaultValue: 'Expired' },
-    { value: 'terminated', labelKey: 'common.status.terminated', defaultValue: 'Terminated' },
-];
-
 
 // Code Systems
 export const CODE_SYSTEMS = [
@@ -230,36 +120,47 @@ export const CURRENCIES = [
     { value: 'GBP', labelKey: 'currencies.gbp', defaultValue: 'GBP (£)' },
 ];
 
-// Task Statuses
+// Task-related constants
 export const TASK_STATUSES = [
-    { value: 'todo', labelKey: 'tasks.status.todo', defaultValue: 'To Do' },
-    { value: 'in_progress', labelKey: 'tasks.status.in_progress', defaultValue: 'In Progress' },
-    { value: 'done', labelKey: 'tasks.status.done', defaultValue: 'Done' },
+  { value: 'todo', label: 'Todo', labelKey: 'status.todo' },
+  { value: 'in_progress', label: 'In Progress', labelKey: 'status.in_progress' },
+  { value: 'done', label: 'Done', labelKey: 'status.done' },
+  { value: 'cancelled', label: 'Cancelled', labelKey: 'status.cancelled' }
 ];
 
-// Adding this constant specifically for the Kanban view
+// Adding this constant specifically for the Kanban view (kept as it was not in the outline to change)
 export const TASK_STATUS_OPTIONS = [
     { value: 'todo', label: 'To Do' },
     { value: 'in_progress', label: 'In Progress' },
     { value: 'done', label: 'Done' }
 ];
 
-// Task Priorities
 export const TASK_PRIORITIES = [
-    { value: 'low', labelKey: 'tasks.priority.low', defaultValue: 'Low' },
-    { value: 'medium', labelKey: 'tasks.priority.medium', defaultValue: 'Medium' },
-    { value: 'high', labelKey: 'tasks.priority.high', defaultValue: 'High' },
+  { value: 'low', label: 'Low', labelKey: 'priority.low' },
+  { value: 'medium', label: 'Medium', labelKey: 'priority.medium' },
+  { value: 'high', label: 'High', labelKey: 'priority.high' },
+  { value: 'urgent', label: 'Urgent', labelKey: 'priority.urgent' }
 ];
 
-// Task Categories
 export const TASK_CATEGORIES = [
-    { value: 'work', labelKey: 'tasks.category.work', defaultValue: 'Work' },
-    { value: 'personal', labelKey: 'tasks.category.personal', defaultValue: 'Personal' },
-    { value: 'admin', labelKey: 'tasks.category.admin', defaultValue: 'Administrative' },
-    { value: 'follow_up', labelKey: 'tasks.category.follow_up', defaultValue: 'Follow Up' },
-    { value: 'data_entry', labelKey: 'tasks.category.data_entry', defaultValue: 'Data Entry' },
-    { value: 'review', labelKey: 'tasks.category.review', defaultValue: 'Review' },
-    { value: 'system_update', labelKey: 'tasks.category.system_update', defaultValue: 'System Update' },
+  { value: 'claim_review', label: 'Claim Review', labelKey: 'category.claim_review' },
+  { value: 'provider_onboarding', label: 'Provider Onboarding', labelKey: 'category.provider_onboarding' },
+  { value: 'contract_negotiation', label: 'Contract Negotiation', labelKey: 'category.contract_negotiation' },
+  { value: 'compliance_check', label: 'Compliance Check', labelKey: 'category.compliance_check' },
+  { value: 'data_validation', label: 'Data Validation', labelKey: 'category.data_validation' },
+  { value: 'system_maintenance', label: 'System Maintenance', labelKey: 'category.system_maintenance' },
+  { value: 'training', label: 'Training', labelKey: 'category.training' },
+  { value: 'general', label: 'General', labelKey: 'category.general' }
+];
+
+export const TASK_RELATED_ENTITY_TYPES = [
+  { value: 'none', label: 'None', labelKey: 'common.none' },
+  { value: 'provider', label: 'Provider', labelKey: 'providers.itemTitleSingular' },
+  { value: 'doctor', label: 'Doctor', labelKey: 'pageTitles.doctorsSingular' },
+  { value: 'claim', label: 'Claim', labelKey: 'claims.itemTitleSingular' },
+  { value: 'rfc', label: 'RFC', labelKey: 'rfc.itemTitleSingular' },
+  { value: 'contract', label: 'Contract', labelKey: 'contracts.itemTitleSingular' },
+  { value: 'policy', label: 'Policy', labelKey: 'policies.itemTitleSingular' }
 ];
 
 // Affiliation Statuses (Doctor-Provider Linkage)
@@ -342,18 +243,16 @@ export const POLICY_STATUSES = [
     { value: 'lapsed', labelKey: 'policies.status.lapsed', defaultValue: 'Lapsed (e.g. non-payment)' },
 ];
 
-export const GENDERS = [
-    { value: 'male', labelKey: 'genders.male', defaultValue: 'Male' },
-    { value: 'female', labelKey: 'genders.female', defaultValue: 'Female' },
-    { value: 'other', labelKey: 'genders.other', defaultValue: 'Other' },
-    { value: 'prefer_not_to_say', labelKey: 'genders.prefer_not_to_say', defaultValue: 'Prefer not to say' },
+// Gender options
+export const GENDER_OPTIONS = [
+  { value: 'male', label: 'Male', labelKey: 'gender.male' },
+  { value: 'female', label: 'Female', labelKey: 'gender.female' },
+  { value: 'other', label: 'Other', labelKey: 'gender.other' }
 ];
 
-export const IDENTIFICATION_TYPES = [
-    { value: 'national_id', labelKey: 'idTypes.national_id', defaultValue: 'National ID (Teudat Zehut)' },
-    { value: 'passport', labelKey: 'idTypes.passport', defaultValue: 'Passport' },
-    { value: 'driver_license', labelKey: 'idTypes.driver_license', defaultValue: 'Driver\'s License' },
-    { value: 'insurance_member_id', labelKey: 'idTypes.insurance_member_id', defaultValue: 'Insurance Member ID' },
-    { value: 'employee_id', labelKey: 'idTypes.employee_id', defaultValue: 'Employee ID' },
-    { value: 'other', labelKey: 'idTypes.other', defaultValue: 'Other' },
+// ID Type options
+export const ID_TYPES = [
+  { value: 'national_id', label: 'National ID', labelKey: 'idType.national_id' },
+  { value: 'insurance_number', label: 'Insurance Number', labelKey: 'idType.insurance_number' },
+  { value: 'passport', label: 'Passport', labelKey: 'idType.passport' }
 ];

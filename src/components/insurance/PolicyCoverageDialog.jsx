@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogClose
@@ -8,10 +9,10 @@ import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { useLanguageHook } from '@/components/useLanguageHook';
-import { PolicyCoverage } from '@/api/entities'; // Assuming SDK
+import { PolicyCoverage } from '@/api/entities'; // Corrected path: import from specific entity file
 import { InsurancePolicy } from '@/api/entities'; // For policy dropdown
 import { useToast } from "@/components/ui/use-toast";
-import FormField from '@/components/shared/FormField'; // Reusing FormField
+import FormField from '@/components/shared/forms/FormField'; // Reusing FormField
 import SelectField from '@/components/common/SelectField'; // Reusing SelectField
 import { AlertCircle, Save } from 'lucide-react';
 

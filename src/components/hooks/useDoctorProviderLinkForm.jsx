@@ -1,66 +1,70 @@
-import { useState, useEffect, useCallback } from 'react';
-    import { useLanguageHook } from '@/components/useLanguageHook';
-    import { parseISO, isValid } from 'date-fns';
+// Content of components/hooks/useDoctorProviderLinkForm.js
+import { useForm } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import * as z from 'zod';
+import { DoctorProviderAffiliation } from '@/api/entities';
+import { useToast } from '@/components/ui/use-toast';
+import { useLanguageHook } from '@/components/useLanguageHook';
 
-    // This hook can encapsulate the form logic for the LinkageDialog
-    // For now, much of this logic is directly in LinkageDialog.jsx
-    // This can be a future refactor to centralize form state and validation if needed.
+const getLinkageSchema = (t) => z.object({
+  doctor_id: z.string().min(1, { message: t('validation.requiredField', { fieldName: t('fields.doctor', { defaultValue: 'Doctor' }) }) }),
+  provider_id: z.string().min(1, { message: t('validation.requiredField', { fieldName: t('fields.provider', { defaultValue: 'Provider' }) }) }),
+  affiliation_status: z.enum(['active', 'inactive', 'pending_approval']).default('active'),
+  start_date: z.date({ required_error: t('validation.requiredField', { fieldName: t('fields.startDate', { defaultValue: 'Start Date' }) }) }),
+  end_date: z.date().optional().nullable(),
+  is_primary_location: z.boolean().default(false),
+  special_notes: z.string().max(1000, { message: t('validation.maxLength', { fieldName: t('fields.specialNotes'), maxLength: 1000 }) }).optional().nullable(),
+}).refine(data => !data.end_date || data.start_date <= data.end_date, {
+  message: t('linkage.validation.endDateAfterStart', { defaultValue: "End date must be after or same as start date." }),
+  path: ['end_date'],
+});
 
-    export default function useDoctorProviderLinkForm(initialLinkageData) {
-        const { t } = useLanguageHook();
-        const [formData, setFormData] = useState({
-            doctor_id: '',
-            provider_id: '',
-            affiliation_status: 'active',
-            start_date: new Date(),
-            end_date: null,
-            is_primary_location: false,
-            special_notes: '',
-        });
-        const [errors, setErrors] = useState({});
+export function useDoctorProviderLinkForm(defaultValues, onSubmitSuccess) {
+  const { t } = useLanguageHook();
+  const { toast } = useToast();
+  const linkageSchema = getLinkageSchema(t);
 
-        const resetForm = useCallback(() => {
-            setFormData({
-                doctor_id: initialLinkageData?.doctor_id || '',
-                provider_id: initialLinkageData?.provider_id || '',
-                affiliation_status: initialLinkageData?.affiliation_status || 'active',
-                start_date: initialLinkageData?.start_date ? (isValid(parseISO(initialLinkageData.start_date)) ? parseISO(initialLinkageData.start_date) : new Date()) : new Date(),
-                end_date: initialLinkageData?.end_date ? (isValid(parseISO(initialLinkageData.end_date)) ? parseISO(initialLinkageData.end_date) : null) : null,
-                is_primary_location: initialLinkageData?.is_primary_location || false,
-                special_notes: initialLinkageData?.special_notes || '',
-            });
-            setErrors({});
-        }, [initialLinkageData]);
+  const form = useForm({
+    resolver: zodResolver(linkageSchema),
+    defaultValues: defaultValues ? {
+      ...defaultValues,
+      start_date: defaultValues.start_date ? new Date(defaultValues.start_date) : null,
+      end_date: defaultValues.end_date ? new Date(defaultValues.end_date) : null,
+      is_primary_location: defaultValues.is_primary_location || false,
+    } : {
+      affiliation_status: 'active',
+      is_primary_location: false,
+    },
+  });
 
-        useEffect(() => {
-            resetForm();
-        }, [initialLinkageData, resetForm]);
+  const handleSubmit = form.handleSubmit(async (data) => {
+    try {
+      const dataToSave = {
+        ...data,
+        start_date: data.start_date?.toISOString().split('T')[0], // Format YYYY-MM-DD
+        end_date: data.end_date?.toISOString().split('T')[0],
+      };
 
-        const handleChange = (field, value) => {
-            setFormData(prev => ({ ...prev, [field]: value }));
-            if (errors[field]) {
-                setErrors(prev => ({ ...prev, [field]: null }));
-            }
-        };
-
-        const validate = () => {
-            const newErrors = {};
-            if (!formData.doctor_id) newErrors.doctor_id = t('validation.required', { field: 'Doctor' });
-            if (!formData.provider_id) newErrors.provider_id = t('validation.required', { field: 'Provider' });
-            if (!formData.start_date) newErrors.start_date = t('validation.required', { field: 'Start Date' });
-            if (formData.end_date && formData.start_date && formData.end_date < formData.start_date) {
-                newErrors.end_date = t('validation.endDateAfterStartSimple');
-            }
-            setErrors(newErrors);
-            return Object.keys(newErrors).length === 0;
-        };
-
-        return {
-            formData,
-            setFormData, // Expose if direct setting is needed
-            handleChange,
-            errors,
-            validate,
-            resetForm,
-        };
+      let result;
+      if (defaultValues?.id) {
+        result = await DoctorProviderAffiliation.update(defaultValues.id, dataToSave);
+        toast({ title: t('linkage.updateSuccessTitle'), description: t('linkage.updateSuccessDetail', { id: defaultValues.id }) });
+      } else {
+        result = await DoctorProviderAffiliation.create(dataToSave);
+        toast({ title: t('linkage.createSuccessTitle'), description: t('linkage.createSuccessDetail', { id: result.id }) });
+      }
+      if (onSubmitSuccess) onSubmitSuccess(result);
+      return result;
+    } catch (error) {
+      console.error("Error saving linkage:", error);
+      toast({
+        title: t('common.saveErrorTitle'),
+        description: error.message || t('common.saveErrorDetail', { entity: t('linkage.entityNameSingular') }),
+        variant: 'destructive',
+      });
+      throw error;
     }
+  });
+
+  return { form, handleSubmit, isLoading: form.formState.isSubmitting };
+}

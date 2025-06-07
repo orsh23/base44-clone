@@ -1,224 +1,96 @@
-import { useState, useEffect, useCallback } from 'react';
-import { useToast } from '../ui/use-toast';
+// Content of components/hooks/useTariffForm.js
+import { useForm, useFieldArray } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import * as z from 'zod';
 import { Tariff } from '@/api/entities';
-import { useTranslation } from '../utils/i18n';
+import { useToast } from '@/components/ui/use-toast';
+import { useLanguageHook } from '@/components/useLanguageHook';
 
-// Define constants - currency options
-const CURRENCY_OPTIONS = [
-  { value: 'ILS', label: 'ILS (₪)' },
-  { value: 'USD', label: 'USD ($)' },
-  { value: 'EUR', label: 'EUR (€)' }
-];
+const getCompositionItemSchema = (t) => z.object({
+  component_type: z.enum(['Base', 'DoctorFee', 'Implantables', 'Hospitalization', 'Drugs', 'Other']),
+  pricing_model: z.enum(['Fixed', 'BoMActual', 'PerDay', 'Capped', 'PerUnit']),
+  recipient_type: z.enum(['Provider', 'Doctor', 'Supplier', 'Patient']),
+  recipient_id: z.string().optional().nullable(),
+  amount: z.coerce.number().optional().nullable(),
+  cap_value: z.coerce.number().optional().nullable(),
+  finalized_at: z.enum(['RFC', 'Claim']),
+  copay_applies: z.boolean().default(true),
+});
 
-// Define constants - finalization types
-const FINALIZATION_TYPES = [
-  { value: 'RFC', label: 'Request for Commitment' },
-  { value: 'Claim', label: 'Claim' },
-  { value: 'Hybrid', label: 'Hybrid' }
-];
+const getValidationRuleSchema = (t) => z.object({
+  rule_type: z.enum(['age_limit', 'gender_specific', 'requires_approval']),
+  rule_value: z.string().min(1, { message: t('validation.requiredField', {fieldName: 'Rule Value'}) }),
+});
 
-// Component types for composition
-const COMPONENT_TYPES = [
-  { value: 'Base', label: 'Base Price' },
-  { value: 'DoctorFee', label: 'Doctor Fee' },
-  { value: 'Implantables', label: 'Implantables' },
-  { value: 'Hospitalization', label: 'Hospitalization' },
-  { value: 'Drugs', label: 'Drugs' },
-  { value: 'Other', label: 'Other' }
-];
+const getTariffSchema = (t) => z.object({
+  contract_id: z.string().min(1, { message: t('validation.requiredField', {fieldName: t('fields.contractId')}) }),
+  insurance_code: z.string().min(1, { message: t('validation.requiredField', {fieldName: t('fields.insuranceCode')}) }),
+  doctor_id: z.string().optional().nullable(),
+  base_price: z.coerce.number().min(0, { message: t('validation.nonNegativeNumber', {fieldName: t('fields.basePrice')}) }),
+  currency: z.string().default('ILS'),
+  finalization_type: z.enum(['RFC', 'Claim', 'Hybrid']),
+  composition: z.array(getCompositionItemSchema(t)).optional().default([]),
+  validation_rules: z.array(getValidationRuleSchema(t)).optional().default([]),
+});
 
-// Pricing models
-const PRICING_MODELS = [
-  { value: 'Fixed', label: 'Fixed Amount' },
-  { value: 'BoMActual', label: 'Bill of Materials (Actual)' },
-  { value: 'PerDay', label: 'Per Day Rate' },
-  { value: 'Capped', label: 'Capped Amount' },
-  { value: 'PerUnit', label: 'Per Unit' }
-];
 
-// Recipient types
-const RECIPIENT_TYPES = [
-  { value: 'Provider', label: 'Provider' },
-  { value: 'Doctor', label: 'Doctor' },
-  { value: 'Supplier', label: 'Supplier' },
-  { value: 'Patient', label: 'Patient' }
-];
-
-export function useTariffForm(initialData = null) {
-  const { t } = useTranslation();
+export function useTariffForm(defaultValues, onSubmitSuccess) {
+  const { t } = useLanguageHook();
   const { toast } = useToast();
-  
-  // Initial state creator function
-  const getInitialState = useCallback(() => {
-    const defaultState = {
-      contract_id: '',
-      insurance_code: '',
-      doctor_id: '',
-      base_price: 0,
+  const tariffSchema = getTariffSchema(t);
+
+  const form = useForm({
+    resolver: zodResolver(tariffSchema),
+    defaultValues: defaultValues || {
       currency: 'ILS',
-      finalization_type: 'Claim',
+      finalization_type: 'Hybrid', // A sensible default
       composition: [],
-      validation_rules: []
-    };
-    
-    // If initialData is provided and is an object, merge with defaults
-    if (initialData && typeof initialData === 'object') {
-      return {
-        ...defaultState,
-        ...initialData,
-        // Ensure arrays
-        composition: Array.isArray(initialData.composition) ? initialData.composition : [],
-        validation_rules: Array.isArray(initialData.validation_rules) ? initialData.validation_rules : []
-      };
-    }
-    
-    return defaultState;
-  }, [initialData]);
-  
-  const [formData, setFormData] = useState(getInitialState());
-  const [formErrors, setFormErrors] = useState({});
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  
-  // Update form when initialData changes
-  useEffect(() => {
-    setFormData(getInitialState());
-    setFormErrors({});
-  }, [initialData, getInitialState]);
-  
-  // Update a single field
-  const updateField = useCallback((field, value) => {
-    setFormData(prev => ({
-      ...prev,
-      [field]: value
-    }));
-    
-    // Clear error for this field if it exists
-    if (formErrors[field]) {
-      setFormErrors(prev => {
-        const newErrors = { ...prev };
-        delete newErrors[field];
-        return newErrors;
-      });
-    }
-  }, [formErrors]);
-  
-  // Validate form
-  const validateForm = useCallback(() => {
-    const errors = {};
-    
-    // Required fields
-    if (!formData.contract_id) {
-      errors.contract_id = t('validation.required', { field: t('tariffs.contractId', { defaultValue: 'Contract ID' }) });
-    }
-    
-    if (!formData.insurance_code) {
-      errors.insurance_code = t('validation.required', { field: t('tariffs.insuranceCode', { defaultValue: 'Insurance Code' }) });
-    }
-    
-    // Validate base_price is a positive number
-    if (typeof formData.base_price !== 'number' || formData.base_price < 0) {
-      errors.base_price = t('validation.positiveNumber', { field: t('tariffs.basePrice', { defaultValue: 'Base Price' }) });
-    }
-    
-    // Validate composition items if any
-    if (Array.isArray(formData.composition)) {
-      const compositionErrors = [];
-      formData.composition.forEach((item, index) => {
-        const itemErrors = {};
-        
-        if (!item.component_type) {
-          itemErrors.component_type = t('validation.required', { field: t('tariffs.componentType', { defaultValue: 'Component Type' }) });
-        }
-        
-        if (!item.pricing_model) {
-          itemErrors.pricing_model = t('validation.required', { field: t('tariffs.pricingModel', { defaultValue: 'Pricing Model' }) });
-        }
-        
-        if (!item.recipient_type) {
-          itemErrors.recipient_type = t('validation.required', { field: t('tariffs.recipientType', { defaultValue: 'Recipient Type' }) });
-        }
-        
-        if (Object.keys(itemErrors).length > 0) {
-          compositionErrors[index] = itemErrors;
-        }
-      });
-      
-      if (compositionErrors.length > 0) {
-        errors.composition = compositionErrors;
-      }
-    }
-    
-    setFormErrors(errors);
-    return Object.keys(errors).length === 0;
-  }, [formData, t]);
-  
-  // Handle form submission
-  const handleSubmit = useCallback(async () => {
-    if (!validateForm()) {
-      return false;
-    }
-    
-    setIsSubmitting(true);
-    
+      validation_rules: [],
+    },
+  });
+
+  const { fields: compositionFields, append: appendComposition, remove: removeComposition } = useFieldArray({
+    control: form.control,
+    name: "composition"
+  });
+
+  const { fields: validationRuleFields, append: appendValidationRule, remove: removeValidationRule } = useFieldArray({
+    control: form.control,
+    name: "validation_rules"
+  });
+
+  const handleSubmit = form.handleSubmit(async (data) => {
     try {
-      if (initialData?.id) {
-        await Tariff.update(initialData.id, formData);
-        toast({ 
-          title: t('tariffs.updateSuccess', { defaultValue: 'Tariff updated successfully' })
-        });
+      let result;
+      if (defaultValues?.id) {
+        result = await Tariff.update(defaultValues.id, data);
+        toast({ title: t('tariffs.updateSuccessTitle'), description: t('tariffs.updateSuccessDetail', { id: defaultValues.id }) });
       } else {
-        await Tariff.create(formData);
-        toast({ 
-          title: t('tariffs.createSuccess', { defaultValue: 'Tariff created successfully' })
-        });
+        result = await Tariff.create(data);
+        toast({ title: t('tariffs.createSuccessTitle'), description: t('tariffs.createSuccessDetail', { id: result.id }) });
       }
-      return true;
+      if (onSubmitSuccess) onSubmitSuccess(result);
+      return result;
     } catch (error) {
-      console.error('Error saving tariff:', error);
+      console.error("Error saving tariff:", error);
       toast({
+        title: t('common.saveErrorTitle'),
+        description: error.message || t('common.saveErrorDetail', { entity: t('tariffs.entityNameSingular') }),
         variant: 'destructive',
-        title: t('tariffs.saveError', { defaultValue: 'Error saving tariff' }),
-        description: error.message
       });
-      return false;
-    } finally {
-      setIsSubmitting(false);
+      throw error;
     }
-  }, [formData, initialData, t, toast, validateForm]);
-  
-  // Reset form
-  const resetForm = useCallback((data = {}) => {
-    if (data && typeof data === 'object') {
-      setFormData({
-        contract_id: data.contract_id || '',
-        insurance_code: data.insurance_code || '',
-        doctor_id: data.doctor_id || '',
-        base_price: data.base_price || 0,
-        currency: data.currency || 'ILS',
-        finalization_type: data.finalization_type || 'Claim',
-        composition: Array.isArray(data.composition) ? data.composition : [],
-        validation_rules: Array.isArray(data.validation_rules) ? data.validation_rules : []
-      });
-    } else {
-      setFormData(getInitialState());
-    }
-    setFormErrors({});
-  }, [getInitialState]);
-  
+  });
+
   return {
-    formData,
-    formErrors,
-    isSubmitting,
-    updateField,
-    validateForm,
+    form,
     handleSubmit,
-    resetForm,
-    setFormData,
-    // Options arrays
-    currencyOptions: CURRENCY_OPTIONS,
-    finalizationTypeOptions: FINALIZATION_TYPES,
-    componentTypeOptions: COMPONENT_TYPES,
-    pricingModelOptions: PRICING_MODELS,
-    recipientTypeOptions: RECIPIENT_TYPES
+    isLoading: form.formState.isSubmitting,
+    compositionFields,
+    appendComposition,
+    removeComposition,
+    validationRuleFields,
+    appendValidationRule,
+    removeValidationRule,
   };
 }

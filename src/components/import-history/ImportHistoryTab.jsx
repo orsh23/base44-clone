@@ -4,18 +4,19 @@ import { ImportHistory } from '@/api/entities';
 import { useLanguageHook } from '@/components/useLanguageHook';
 import { useToast } from '@/components/ui/use-toast';
 import useEntityModule from '@/components/hooks/useEntityModule';
-import DataTable from '@/components/shared/DataTable';
+// Corrected DataTable import path
+import { DataTable } from '@/components/ui/data-table'; 
 import ImportHistoryFilterBar from './ImportHistoryFilterBar';
 import ImportDetailsDialog from './ImportDetailsDialog';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { format } from 'date-fns';
-import { History } from 'lucide-react';
-import GlobalActionButton from '@/components/shared/GlobalActionButton';
-import ViewSwitcher from '@/components/shared/ViewSwitcher';
-import ErrorDisplay from '@/components/shared/ErrorDisplay';
-import LoadingSpinner from '@/components/shared/LoadingSpinner';
-import { loadFromStorage, saveToStorage } from '@/lib/utils';
+// Added missing RefreshCw import
+import { History, RefreshCw } from 'lucide-react';
+import GlobalActionButton from '@/components/common/GlobalActionButton';
+import ViewSwitcher from '@/components/common/ViewSwitcher';
+import ErrorDisplay from '@/components/common/ErrorDisplay';
+import LoadingSpinner from '@/components/ui/loading-spinner';
+import { loadFromStorage, saveToStorage } from '@/components/utils/storage'; // Corrected import path for storage utils
 
 export default function ImportHistoryTab({ globalActionsConfig: externalActionsConfig, currentView: passedView }) {
   const { t, language, isRTL } = useLanguageHook();
@@ -79,11 +80,11 @@ export default function ImportHistoryTab({ globalActionsConfig: externalActionsC
     loading,
     error,
     filters,
-    setFilters, // Keep for direct manipulation if needed, but prefer handlers
+    // setFilters, // Not directly used, prefer handlers
     sortConfig,
-    setSortConfig, // Keep for direct manipulation if needed, but prefer handlers
+    // setSortConfig, // Not directly used, prefer handlers
     pagination,
-    setPagination, // Keep for direct manipulation if needed, but prefer handlers
+    // setPagination, // Not directly used, prefer handlers
     selectedItems,
     setSelectedItems,
     isDialogOpen,
@@ -91,7 +92,7 @@ export default function ImportHistoryTab({ globalActionsConfig: externalActionsC
     currentItem,
     setCurrentItem,
     handleRefresh: refreshImportHistory,
-    handleSearch,
+    handleSearch, // Used if DataTable has internal search
     handleFilterChange,
     handleSortChange,
     handlePageChange,
@@ -101,16 +102,26 @@ export default function ImportHistoryTab({ globalActionsConfig: externalActionsC
     handleToggleSelection,
     handleSelectAll,
     handleSelfSubmittingDialogClose,
-  } = useEntityModule(entityConfig);
+  } = useEntityModule(entityConfig) || { // Added fallback for destructuring
+    items: [], loading: false, error: null, filters: entityConfig.initialFilters,
+    sortConfig: entityConfig.initialSort, pagination: { pageIndex: 0, pageSize: 10, totalItems: 0, totalPages: 1},
+    selectedItems: [], setSelectedItems: () => {},
+    isDialogOpen: false, setIsDialogOpen: () => {},
+    currentItem: null, setCurrentItem: () => {},
+    handleRefresh: () => {}, handleSearch: () => {}, handleFilterChange: () => {},
+    handleSortChange: () => {}, handlePageChange: () => {}, handlePageSizeChange: () => {},
+    isSelectionModeActive: false, setIsSelectionModeActive: () => {},
+    handleToggleSelection: () => {}, handleSelectAll: () => {}, handleSelfSubmittingDialogClose: () => {}
+  };
 
-  const [currentView, setCurrentView] = useState(passedView || loadFromStorage('importHistoryView_viewPreference', 'table'));
+  const [currentViewLocal, setCurrentViewLocal] = useState(passedView || loadFromStorage('importHistoryView_viewPreference', 'table'));
 
   useEffect(() => {
-    if (passedView && passedView !== currentView) {
-      setCurrentView(passedView);
+    if (passedView && passedView !== currentViewLocal) {
+      setCurrentViewLocal(passedView);
       saveToStorage('importHistoryView_viewPreference', passedView);
     }
-  }, [passedView, currentView]);
+  }, [passedView, currentViewLocal]);
 
   const memoizedGlobalActionsConfig = useMemo(() => [
     ...(externalActionsConfig || [])
@@ -143,27 +154,27 @@ export default function ImportHistoryTab({ globalActionsConfig: externalActionsC
     {
       accessorKey: 'file_name',
       header: t('fields.fileName', {defaultValue: 'File Name'}),
-      sortable: true
+      enableSorting: true // Ensure sorting is enabled
     },
     {
       accessorKey: 'module',
       header: t('fields.module', {defaultValue: 'Module'}),
-      sortable: true
+      enableSorting: true
     },
     {
       accessorKey: 'total_records',
       header: t('fields.totalRecords', {defaultValue: 'Total Records'}),
-      sortable: true
+      enableSorting: true
     },
     {
       accessorKey: 'inserted_records',
       header: t('fields.insertedRecords', {defaultValue: 'Inserted'}),
-      sortable: true
+      enableSorting: true
     },
     {
       accessorKey: 'failed_records',
       header: t('fields.failedRecords', {defaultValue: 'Failed'}),
-      sortable: true
+      enableSorting: true
     },
     {
       accessorKey: 'status',
@@ -173,13 +184,23 @@ export default function ImportHistoryTab({ globalActionsConfig: externalActionsC
           {t(`importStatus.${row.original.status}`, {defaultValue: row.original.status})}
         </Badge>
       ),
-      sortable: true
+      enableSorting: true
     },
     {
       accessorKey: 'created_date',
       header: t('fields.importDate', {defaultValue: 'Import Date'}),
-      cell: ({ row }) => row.original.created_date ? format(new Date(row.original.created_date), 'PPp') : '-',
-      sortable: true
+      cell: ({ row }) => {
+        try {
+          if (!row.original.created_date) return '-';
+          const date = new Date(row.original.created_date);
+          if (isNaN(date.getTime())) return 'Invalid Date';
+          return date.toLocaleDateString() + ' ' + date.toLocaleTimeString();
+        } catch (error) {
+          console.warn('Date formatting error:', error);
+          return 'Invalid Date';
+        }
+      },
+      enableSorting: true
     },
     {
       id: 'actions',
@@ -189,50 +210,59 @@ export default function ImportHistoryTab({ globalActionsConfig: externalActionsC
           <Button variant="outline" size="sm" onClick={() => handleViewDetails(row.original)}>
             {t('buttons.viewDetails', {defaultValue: 'View Details'})}
           </Button>
-          {/* Delete button removed as module is configured as read-only */}
         </div>
       ),
     },
-  ], [t, handleViewDetails]);
+  ], [t, handleViewDetails]); // Removed language as it's covered by `t`'s context
 
   const renderContent = useCallback(() => {
     if (error) {
       return <ErrorDisplay message={error.message || t('common.errorLoadingData')} onRetry={refreshImportHistory} />;
     }
 
-    if (loading) {
+    if (loading && (!importHistory || importHistory.length === 0)) { // Show spinner only if no data yet
       return <LoadingSpinner />;
     }
 
-    // Currently only table view is supported for ImportHistory
+    // Ensure all required DataTable props are valid functions
+    const dtSortConfig = Array.isArray(sortConfig) ? sortConfig : [];
+    const dtPagination = typeof pagination === 'object' && pagination !== null ? pagination : { pageIndex: 0, pageSize: 10, totalItems: 0, totalPages: 1 };
+
+
     return (
       <DataTable
         columns={columns}
-        data={importHistory}
+        data={importHistory || []} // Ensure data is always an array
         loading={loading}
-        error={error}
-        onRetry={refreshImportHistory}
+        error={error} // DataTable handles its own error display if data is empty
+        onRetry={typeof refreshImportHistory === 'function' ? refreshImportHistory : () => {}}
         entityName={t('importHistory.titlePlural', {defaultValue: 'Import History'})}
-        filters={filters}
-        onFilterChange={handleFilterChange} // For filter changes originating from DataTable itself
-        sortConfig={sortConfig}
-        onSortChange={handleSortChange}
-        pagination={pagination}
-        onPageChange={handlePageChange}
-        onPageSizeChange={handlePageSizeChange}
-        onSearch={handleSearch} // For a search bar within DataTable
-        selectedItems={selectedItems}
-        setSelectedItems={setSelectedItems} // For selection management within DataTable
+        filters={filters} // This filters object is from useEntityModule, for external filter components
+        onFilterChange={typeof handleFilterChange === 'function' ? handleFilterChange : () => {}}
+        currentSort={dtSortConfig}
+        onSortChange={typeof handleSortChange === 'function' ? handleSortChange : () => {}}
+        pagination={{
+            currentPage: dtPagination.currentPage || dtPagination.pageIndex + 1,
+            pageSize: dtPagination.pageSize,
+            totalItems: dtPagination.totalCount || dtPagination.totalItems || 0,
+            totalPages: dtPagination.totalPages || 1,
+            onPageChange: typeof handlePageChange === 'function' ? handlePageChange : () => {},
+            onPageSizeChange: typeof handlePageSizeChange === 'function' ? handlePageSizeChange : () => {},
+        }}
+        onSearch={typeof handleSearch === 'function' ? handleSearch : undefined} // Pass if DataTable uses it
+        selectedRowIds={new Set(selectedItems)} // DataTable might expect selectedRowIds
+        onRowSelectionChange={typeof handleToggleSelection === 'function' ? (id, checked) => handleToggleSelection(id) : undefined}
+        onSelectAllRows={typeof handleSelectAll === 'function' ? (shouldSelect) => handleSelectAll(null, shouldSelect) : undefined}
         isSelectionModeActive={isSelectionModeActive}
-        handleToggleSelection={handleToggleSelection}
-        handleSelectAll={handleSelectAll}
+        t={t}
+        isRTL={isRTL}
       />
     );
   }, [
-    columns, importHistory, loading, error, refreshImportHistory, t,
+    columns, importHistory, loading, error, refreshImportHistory, t, isRTL,
     filters, handleFilterChange, sortConfig, handleSortChange, pagination,
     handlePageChange, handlePageSizeChange, handleSearch,
-    selectedItems, setSelectedItems, isSelectionModeActive, handleToggleSelection, handleSelectAll
+    selectedItems, isSelectionModeActive, handleToggleSelection, handleSelectAll
   ]);
 
 
@@ -241,7 +271,7 @@ export default function ImportHistoryTab({ globalActionsConfig: externalActionsC
       <div className="flex flex-col sm:flex-row items-center justify-between gap-2 sticky top-[var(--subheader-height,0px)] bg-background dark:bg-gray-900 py-3 z-10 -mx-1 px-1 md:mx-0 md:px-0 border-b dark:border-gray-700">
         <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-100 flex items-center">
           <History className={`h-5 w-5 ${isRTL ? 'ml-2' : 'mr-2'} text-gray-600 dark:text-gray-400`} />
-          {t('pageTitles.importHistory')} ({importHistory.length || 0})
+          {t('pageTitles.importHistory')} ({pagination?.totalCount || importHistory?.length || 0})
         </h3>
         <div className="flex items-center gap-2">
             <GlobalActionButton
@@ -253,12 +283,14 @@ export default function ImportHistoryTab({ globalActionsConfig: externalActionsC
                 t={t}
             />
             <Button variant="outline" size="sm" onClick={refreshImportHistory} disabled={loading}>
+                <RefreshCw className={`w-4 h-4 ${isRTL ? 'ml-1' : 'mr-1' } ${loading ? 'animate-spin' : ''}`} />
                 {t('buttons.refresh', {defaultValue: 'Refresh'})}
             </Button>
             <ViewSwitcher
-              currentView={currentView}
-              onViewChange={(view) => { setCurrentView(view); saveToStorage('importHistoryView_viewPreference', view); }}
-              showCards={false} // Assuming no card view for import history
+              currentView={currentViewLocal}
+              onViewChange={(view) => { setCurrentViewLocal(view); saveToStorage('importHistoryView_viewPreference', view); }}
+              availableViews={['table']} // Only table view for import history
+              t={t} isRTL={isRTL}
             />
         </div>
       </div>
@@ -267,11 +299,14 @@ export default function ImportHistoryTab({ globalActionsConfig: externalActionsC
         currentFilters={filters}
       />
       {renderContent()}
-      {isDialogOpen && (
+      {isDialogOpen && currentItem && ( // Ensure currentItem is not null
         <ImportDetailsDialog
           open={isDialogOpen}
-          onOpenChange={handleSelfSubmittingDialogClose}
+          onOpenChange={handleSelfSubmittingDialogClose} // This already handles setting dialog to false
           importData={currentItem}
+          t={t}
+          language={language}
+          isRTL={isRTL}
         />
       )}
     </div>

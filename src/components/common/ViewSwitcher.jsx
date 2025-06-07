@@ -1,49 +1,60 @@
 import React from 'react';
 import { Button } from '@/components/ui/button';
-import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'; // Using Tabs for a segmented control look
-import { LayoutGrid, List } from 'lucide-react';
-import { useLanguageHook } from '@/components/useLanguageHook';
+import { Grid3X3, Table, Kanban } from 'lucide-react';
 
-const ViewSwitcher = ({ availableViews = ['card', 'table'], currentView, onViewChange, entityName }) => {
-  const { t } = useLanguageHook();
-
-  const viewIcons = {
-    card: LayoutGrid,
-    table: List,
-    // grid: GridIcon, // If you add a third 'grid' view distinct from 'card'
-  };
-  
-  const viewLabels = {
-    card: t('viewSwitcher.cardView', { defaultValue: 'Card View' }),
-    table: t('viewSwitcher.tableView', { defaultValue: 'Table View' }),
-  };
-
-  const handleViewChange = (value) => {
-    if (entityName) {
-      try {
-        localStorage.setItem(`${entityName}_view_preference`, value);
-      } catch (e) {
-        console.warn("Could not save view preference to localStorage", e);
-      }
+export default function ViewSwitcher({
+  currentView = 'card',
+  onViewChange,
+  availableViews = ['card', 'table'],
+  entityName = 'items',
+  t = (key, options) => options?.defaultValue || key,
+  isRTL = false,
+  className = ''
+}) {
+  const viewConfig = {
+    card: {
+      icon: Grid3X3,
+      label: t('viewSwitcher.cardView', { defaultValue: 'Card View' })
+    },
+    table: {
+      icon: Table,
+      label: t('viewSwitcher.tableView', { defaultValue: 'Table View' })
+    },
+    kanban: {
+      icon: Kanban,
+      label: t('viewSwitcher.kanbanView', { defaultValue: 'Kanban View' })
     }
-    onViewChange(value);
+  };
+
+  const handleViewChange = (view) => {
+    if (onViewChange && typeof onViewChange === 'function') {
+      onViewChange(view);
+    }
   };
 
   return (
-    <Tabs value={currentView} onValueChange={handleViewChange} className="w-auto">
-      <TabsList className="h-9">
-        {availableViews.map((view) => {
-          const Icon = viewIcons[view];
-          return (
-            <TabsTrigger key={view} value={view} className="h-7 px-2 py-1 text-xs">
-              {Icon && <Icon className="h-4 w-4 mr-1.5" />}
-              {viewLabels[view] || view.charAt(0).toUpperCase() + view.slice(1)}
-            </TabsTrigger>
-          );
-        })}
-      </TabsList>
-    </Tabs>
+    <div className={`flex items-center gap-1 border rounded-md p-1 bg-white dark:bg-gray-800 ${className}`}>
+      {availableViews.map(view => {
+        const config = viewConfig[view];
+        if (!config) return null;
+        
+        const Icon = config.icon;
+        const isActive = currentView === view;
+        
+        return (
+          <Button
+            key={view}
+            variant={isActive ? 'default' : 'ghost'}
+            size="sm"
+            onClick={() => handleViewChange(view)}
+            className={`px-3 py-2 ${isActive ? 'bg-blue-600 text-white hover:bg-blue-700' : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100'}`}
+            title={config.label}
+          >
+            <Icon className={`w-4 h-4 ${isRTL ? 'ml-1' : 'mr-1'}`} />
+            <span className="hidden sm:inline">{config.label}</span>
+          </Button>
+        );
+      })}
+    </div>
   );
-};
-
-export default ViewSwitcher;
+}

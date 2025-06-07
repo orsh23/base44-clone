@@ -1,276 +1,499 @@
 
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useMemo, useState, useCallback, useEffect } from 'react';
 import { Address } from '@/api/entities';
 import { City } from '@/api/entities';
 import { Street } from '@/api/entities';
 import { useLanguageHook } from '@/components/useLanguageHook';
-import useEntityModule from '@/components/hooks/useEntityModule'; // Assuming this new hook exists
-import DataTable from '@/components/shared/DataTable';
+import useEntityModule from '@/components/hooks/useEntityModule';
+// Corrected DataTable import path
+import { DataTable } from '@/components/ui/data-table';
+import LoadingSpinner from '@/components/ui/loading-spinner';
+import EmptyState from '@/components/ui/empty-state';
+import ErrorDisplay from '@/components/common/ErrorDisplay';
 import AddressDialog from './AddressDialog';
-import SearchFilterBar from '@/components/shared/SearchFilterBar';
+import GlobalActionButton from '@/components/common/GlobalActionButton'; // Fixed import path
+import ViewSwitcher from '@/components/common/ViewSwitcher';
+import BulkSelectionModal from '@/components/shared/BulkSelectionModal';
 import { Button } from '@/components/ui/button';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Badge } from '@/components/ui/badge';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { MapPin, Plus, Edit, Trash2, RefreshCw, Search, Home, Building } from 'lucide-react'; // Building2 changed to Building
 import { useToast } from "@/components/ui/use-toast";
-import { HomeIcon, Plus } from 'lucide-react'; // Added HomeIcon and Plus for new UI elements
-import GlobalActionButton from '@/components/shared/GlobalActionButton'; // Assuming this component exists
+import ConfirmationDialog from '@/components/ui/confirmation-dialog';
 
-export default function AddressesTab({ globalActionsConfig: externalActionsConfig, currentView: passedView }) {
+export default function AddressesTab() {
   const { t, language, isRTL } = useLanguageHook();
   const { toast } = useToast();
+  const [currentView, setCurrentView] = useState('table');
+  const [showBulkModal, setShowBulkModal] = useState(false);
+  const [bulkAction, setBulkAction] = useState('');
+  const [confirmDialog, setConfirmDialog] = useState({ open: false, item: null });
+  const [cities, setCities] = useState([]);
+  const [streets, setStreets] = useState([]);
 
-  const [allCities, setAllCities] = useState([]);
-  const [allStreets, setAllStreets] = useState([]); // Can be filtered based on selected city
+  // Fetch cities and streets for dropdowns
+  useEffect(() => {
+    const fetchRelatedData = async () => {
+      try {
+        const [citiesData, streetsData] = await Promise.all([
+          City.list(),
+          Street.list()
+        ]);
+        setCities(Array.isArray(citiesData) ? citiesData : []);
+        setStreets(Array.isArray(streetsData) ? streetsData : []);
+      } catch (error) {
+        console.error('Error fetching related data:', error);
+      }
+    };
+    fetchRelatedData();
+  }, []);
 
   const entityConfig = useMemo(() => ({
     entitySDK: Address,
-    entityName: t('addresses.address.singular', { defaultValue: "Address" }),
-    entityNamePlural: t('addresses.address.plural', { defaultValue: "Addresses" }),
+    entityName: t('addresses.address.singular', { defaultValue: 'Address' }),
+    entityNamePlural: t('addresses.address.plural', { defaultValue: 'Addresses' }),
     DialogComponent: AddressDialog,
-    FormComponent: null, // If a separate form component was intended for inline use
+    initialSort: [{ id: 'house_number', desc: false }],
     initialFilters: {
-      searchTerm: '', // For house_number, zip_code, notes
-      city_id: 'all',
-      street_id: 'all',
-      page: 1,
-      pageSize: 10,
+      searchTerm: '',
+      cityId: 'all',
+      streetId: 'all',
     },
+    searchFields: ['house_number', 'apartment_number', 'zip_code', 'notes_en', 'notes_he'],
     filterFunction: (item, filters) => {
-        const term = filters.searchTerm?.toLowerCase() || '';
-        let match = true;
-        if (term) {
-            const houseNumberMatch = item.house_number?.toLowerCase().includes(term);
-            const zipCodeMatch = item.zip_code?.toLowerCase().includes(term);
-            const notesEnMatch = item.notes_en?.toLowerCase().includes(term);
-            const notesHeMatch = item.notes_he?.toLowerCase().includes(term);
-            match = houseNumberMatch || zipCodeMatch || notesEnMatch || notesHeMatch;
-        }
-        if (!match) return false;
-
-        if (filters.city_id && filters.city_id !== 'all' && item.city_id !== filters.city_id) return false;
-        if (filters.street_id && filters.street_id !== 'all' && item.street_id !== filters.street_id) return false;
-        
-        return true;
+      const term = filters.searchTerm?.toLowerCase();
+      if (term) {
+        if (!(
+          item.house_number?.toLowerCase().includes(term) ||
+          item.apartment_number?.toLowerCase().includes(term) ||
+          item.zip_code?.toLowerCase().includes(term) ||
+          item.notes_en?.toLowerCase().includes(term) ||
+          item.notes_he?.toLowerCase().includes(term)
+        )) return false;
+      }
+      if (filters.cityId !== 'all' && item.city_id !== filters.cityId) return false;
+      if (filters.streetId !== 'all' && item.street_id !== filters.streetId) return false;
+      return true;
     },
     storageKey: 'addressesView',
   }), [t]);
 
   const {
     items: addresses,
-    loading, error, filters, setFilters, sortConfig, setSortConfig, pagination, setPagination,
-    selectedItems, setSelectedItems, isDialogOpen, setIsDialogOpen, currentItem, setCurrentItem,
-    handleRefresh: refreshAddresses, handleSearch, handleFilterChange, handleSortChange,
-    handlePageChange, handlePageSizeChange, handleAddNew, handleEdit, handleDelete,
-    handleBulkDelete, isSelectionModeActive, setIsSelectionModeActive,
-    handleToggleSelection, handleSelectAll, handleSelfSubmittingDialogClose,
-    filteredAndSortedItems // Assuming useEntityModule provides this for count
+    loading,
+    error,
+    filters,
+    sortConfig,
+    selectedItems,
+    setSelectedItems,
+    isSelectionModeActive,
+    setIsSelectionModeActive,
+    isDialogOpen,
+    currentItem,
+    handleRefresh: refreshAddresses,
+    handleFilterChange,
+    handleSortChange,
+    handleAddNew,
+    handleEdit,
+    handleBulkDelete,
+    handleToggleSelection,
+    handleSelectAll,
+    handleSelfSubmittingDialogClose,
   } = useEntityModule(entityConfig);
 
-  // Fetch cities on mount
-  useEffect(() => {
-    const fetchCities = async () => {
-      try {
-        const cityData = await City.list();
-        setAllCities(Array.isArray(cityData) ? cityData : []);
-      } catch (error) {
-        console.error("Failed to fetch cities:", error);
-        toast({ title: t('errors.fetchCitiesError', { defaultValue: "Could not load cities" }), description: error.message, variant: 'destructive'});
-      }
-    };
-    fetchCities();
-  }, [t, toast]);
+  // Filter addresses based on current filters
+  const filteredAddresses = useMemo(() => {
+    if (!Array.isArray(addresses)) return [];
+    return addresses.filter(address => entityConfig.filterFunction(address, filters));
+  }, [addresses, filters, entityConfig.filterFunction]);
 
-  // Fetch streets when selectedCityId changes (now filters.city_id)
-  useEffect(() => {
-    const cityId = filters.city_id;
-    if (cityId && cityId !== 'all') {
-      const fetchStreets = async () => {
-        try {
-          const streetData = await Street.filter({ city_id: cityId });
-          setAllStreets(Array.isArray(streetData) ? streetData : []);
-          // If the current street filter is not in the new list of streets, reset it
-          if (filters.street_id !== 'all' && !streetData.some(s => s.id === filters.street_id)) {
-            handleFilterChange('street_id', 'all');
-          }
-        } catch (error) {
-          console.error("Failed to fetch streets:", error);
-          setAllStreets([]);
-          toast({ title: t('errors.fetchStreetsError', { defaultValue: "Could not load streets for selected city" }), description: error.message, variant: 'warning'});
-        }
-      };
-      fetchStreets();
-    } else {
-      setAllStreets([]); // Clear streets if no city selected or 'all' cities selected
-      // If no city selected, ensure street filter is also 'all'
-      if (filters.street_id !== 'all') {
-         handleFilterChange('street_id', 'all');
-      }
-    }
-  }, [filters.city_id, t, toast, handleFilterChange, filters.street_id]);
+  // Helper functions to get city and street names
+  const getCityName = useCallback((cityId) => {
+    const city = cities.find(c => c.id === cityId);
+    return city ? (language === 'he' ? (city.name_he || city.name_en) : (city.name_en || city.name_he)) : cityId;
+  }, [cities, language]);
 
-  const formatAddress = useCallback((address) => {
-    const city = allCities.find(c => c.id === address.city_id);
-    const street = allStreets.find(s => s.id === address.street_id); // This relies on allStreets being loaded for the current city
-    
-    const cityName = city ? (language === 'he' ? city.name_he : city.name_en) : address.city_id;
-    const streetName = street ? (language === 'he' ? street.name_he : street.name_en) : address.street_id;
+  const getStreetName = useCallback((streetId) => {
+    const street = streets.find(s => s.id === streetId);
+    return street ? (language === 'he' ? (street.name_he || street.name_en) : (street.name_en || street.name_he)) : streetId;
+  }, [streets, language]);
 
-    let parts = [
-      streetName,
-      address.house_number,
-      address.apartment_number ? `${t('fields.aptShort', {defaultValue: 'Apt.'})} ${address.apartment_number}` : null,
-      cityName,
-      address.zip_code,
-    ].filter(Boolean); // Remove null/empty parts
-
-    if (language === 'he') {
-       parts = [
-         cityName,
-         streetName,
-         address.house_number,
-         address.apartment_number ? `${t('fields.aptShortHe', {defaultValue: 'דירה'})} ${address.apartment_number}` : null,
-         address.zip_code,
-       ].filter(Boolean);
-       return parts.reverse().join(', '); // Reverse for typical Hebrew display, needs checking
-    }
-    return parts.join(', ');
-  }, [t, language, allCities, allStreets]);
-
+  // Columns for table view
   const columns = useMemo(() => [
-    { 
-      accessorKey: 'full_address', 
-      header: t('fields.fullAddress', { defaultValue: 'Full Address' }),
-      cell: ({ row }) => formatAddress(row.original),
-    },
-    { accessorKey: 'notes_en', header: t('fields.notesEn', { defaultValue: 'Notes (EN)' }) },
-    { accessorKey: 'notes_he', header: t('fields.notesHe', { defaultValue: 'Notes (HE)' }) },
     {
-      id: 'actions',
-      header: t('common.actions', { defaultValue: 'Actions' }),
+      accessorKey: 'city_id',
+      header: t('addresses.address.city', { defaultValue: 'City' }),
+      enableSorting: true,
       cell: ({ row }) => (
-        <div className="space-x-2">
-          <Button variant="outline" size="sm" onClick={() => handleEdit(row.original)}>{t('buttons.edit', { defaultValue: 'Edit' })}</Button>
-          <Button variant="destructive" size="sm" onClick={() => handleDelete(row.original.id)}>{t('buttons.delete', { defaultValue: 'Delete' })}</Button>
+        <div className="flex items-center gap-2">
+          <Building className="w-4 h-4 text-blue-500" />
+          <span>{getCityName(row.original.city_id)}</span>
         </div>
       ),
     },
-  ], [t, language, allCities, allStreets, handleEdit, handleDelete, formatAddress]);
-  
-  const barFilterFields = useMemo(() => [
-    { 
-        name: 'city_id', 
-        label: t('fields.city', { defaultValue: 'City' }), 
-        type: 'select', 
-        options: [{value: 'all', label: t('filters.allCities', {defaultValue: 'All Cities'})}, ...allCities.map(city => ({ value: city.id, label: language === 'he' ? city.name_he : city.name_en }))],
-        value: filters.city_id || 'all'
+    {
+      accessorKey: 'street_id',
+      header: t('addresses.address.street', { defaultValue: 'Street' }),
+      enableSorting: true,
+      cell: ({ row }) => (
+        <div className="flex items-center gap-2">
+          <MapPin className="w-4 h-4 text-green-500" />
+          <span>{getStreetName(row.original.street_id)}</span>
+        </div>
+      ),
     },
-    { 
-        name: 'street_id', 
-        label: t('fields.street', { defaultValue: 'Street' }), 
-        type: 'select', 
-        options: [{value: 'all', label: t('filters.allStreets', {defaultValue: 'All Streets'})}, ...allStreets.map(street => ({ value: street.id, label: language === 'he' ? street.name_he : street.name_en }))],
-        value: filters.street_id || 'all',
-        disabled: filters.city_id === 'all' // Disable if no city is selected
+    {
+      accessorKey: 'house_number',
+      header: t('addresses.address.houseNumber', { defaultValue: 'House #' }),
+      enableSorting: true,
+      cell: ({ row }) => (
+        <Badge variant="outline">{row.original.house_number}</Badge>
+      ),
     },
-    // house_number and zip_code are now part of `searchTerm` as per entityConfig
-  ], [t, language, allCities, allStreets, filters.city_id, filters.street_id]);
+    {
+      accessorKey: 'apartment_number',
+      header: t('addresses.address.apartmentNumber', { defaultValue: 'Apt #' }),
+      enableSorting: true,
+      cell: ({ row }) => (
+        row.original.apartment_number ? (
+          <Badge variant="secondary">{row.original.apartment_number}</Badge>
+        ) : (
+          <span className="text-gray-400">{t('common.notSet', { defaultValue: 'N/A' })}</span>
+        )
+      ),
+    },
+    {
+      accessorKey: 'zip_code',
+      header: t('addresses.address.zipCode', { defaultValue: 'ZIP' }),
+      enableSorting: true,
+      cell: ({ row }) => (
+        row.original.zip_code ? (
+          <span className="font-mono">{row.original.zip_code}</span>
+        ) : (
+          <span className="text-gray-400">{t('common.notSet', { defaultValue: 'N/A' })}</span>
+        )
+      ),
+    },
+    {
+      accessorKey: 'actions',
+      header: t('common.actions', { defaultValue: 'Actions' }),
+      enableSorting: false,
+      cell: ({ row }) => (
+        <div className="flex items-center gap-2">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={(e) => {
+              e.stopPropagation();
+              handleEdit(row.original);
+            }}
+          >
+            <Edit className="w-4 h-4" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={(e) => {
+              e.stopPropagation();
+              setConfirmDialog({ open: true, item: row.original });
+            }}
+          >
+            <Trash2 className="w-4 h-4" />
+          </Button>
+        </div>
+      ),
+    },
+  ], [t, getCityName, getStreetName, handleEdit]);
 
+  // Card view component
+  const AddressCard = useCallback(({ address }) => (
+    <Card className="hover:shadow-md transition-shadow">
+      <CardHeader className="pb-2">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Home className="w-5 h-5 text-blue-500" />
+            <CardTitle className="text-lg">
+              {getStreetName(address.street_id)} {address.house_number}
+              {address.apartment_number && `/${address.apartment_number}`}
+            </CardTitle>
+          </div>
+          {isSelectionModeActive && (
+            <Checkbox
+              checked={selectedItems.includes(address.id)}
+              onCheckedChange={(checked) => handleToggleSelection(address.id)}
+            />
+          )}
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-2">
+        <div className="flex items-center gap-2 text-sm text-gray-600">
+          <Building className="w-4 h-4" />
+          <span>{getCityName(address.city_id)}</span>
+        </div>
+        {address.zip_code && (
+          <div className="flex items-center gap-2 text-sm text-gray-600">
+            <MapPin className="w-4 h-4" />
+            <span className="font-mono">{address.zip_code}</span>
+          </div>
+        )}
+        {(address.notes_en || address.notes_he) && (
+          <div className="text-sm text-gray-500 mt-2">
+            {language === 'he' ? (address.notes_he || address.notes_en) : (address.notes_en || address.notes_he)}
+          </div>
+        )}
+        <div className="flex gap-2 mt-3">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => handleEdit(address)}
+          >
+            <Edit className="w-4 h-4 mr-1" />
+            {t('common.edit', { defaultValue: 'Edit' })}
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  ), [selectedItems, isSelectionModeActive, getCityName, getStreetName, language, handleToggleSelection, handleEdit, t]);
 
-  const memoizedGlobalActionsConfig = useMemo(() => [
-    { labelKey: 'addresses.address.add', defaultLabel: 'Add Address', icon: Plus, action: handleAddNew, type: 'add'},
-    ...(externalActionsConfig || [])
-  ], [handleAddNew, externalActionsConfig, t]);
-
-  const handleEditWithSelectionCheck = useCallback(() => {
-    if (selectedItems.length === 1) {
-      handleEdit(selectedItems[0]);
-      setIsSelectionModeActive(false);
-    } else {
-      toast({
-        title: t('common.selectOneItem', { defaultValue: "Please select exactly one item to edit." }),
-        variant: "warning",
-      });
+  // Global actions configuration
+  const globalActionsConfig = useMemo(() => [
+    {
+      labelKey: 'buttons.addAddress',
+      defaultLabel: 'Add Address',
+      icon: Plus,
+      action: handleAddNew,
+      type: 'add'
+    },
+    {
+      labelKey: 'common.edit',
+      defaultLabel: 'Edit',
+      icon: Edit,
+      action: () => {
+        if (selectedItems.length === 1) {
+          const item = filteredAddresses.find(a => a.id === selectedItems[0]);
+          if (item) handleEdit(item);
+        }
+      },
+      type: 'edit',
+      selectionSensitive: true,
+      requiredSelectionCount: 1
+    },
+    {
+      labelKey: 'common.delete',
+      defaultLabel: 'Delete',
+      icon: Trash2,
+      action: () => {
+        if (selectedItems.length > 0) {
+          setBulkAction('delete');
+          setShowBulkModal(true);
+        }
+      },
+      type: 'delete',
+      selectionSensitive: true,
+      requiredSelectionCount: 'any'
     }
-  }, [selectedItems, handleEdit, setIsSelectionModeActive, t, toast]);
-
-  const handleDeleteWithSelectionCheck = useCallback(() => {
-    if (selectedItems.length > 0) {
-      handleBulkDelete(selectedItems);
-      setIsSelectionModeActive(false);
-    } else {
-      toast({
-        title: t('common.selectItemsToDelete', { defaultValue: "Please select items to delete." }),
-        variant: "warning",
-      });
-    }
-  }, [selectedItems, handleBulkDelete, setIsSelectionModeActive, t, toast]);
+  ], [handleAddNew, selectedItems, filteredAddresses, handleEdit]);
 
   const handleCancelSelectionMode = useCallback(() => {
     setIsSelectionModeActive(false);
     setSelectedItems([]);
   }, [setIsSelectionModeActive, setSelectedItems]);
 
+  const renderContent = () => {
+    if (loading && filteredAddresses.length === 0) {
+      return <LoadingSpinner message={t('messages.loadingData', { item: entityConfig.entityNamePlural })} />;
+    }
+
+    if (error && filteredAddresses.length === 0) {
+      return <ErrorDisplay errorMessage={error} onRetry={refreshAddresses} t={t} isRTL={isRTL} />;
+    }
+
+    if (filteredAddresses.length === 0) {
+      const hasFilters = filters.searchTerm || filters.cityId !== 'all' || filters.streetId !== 'all';
+      return (
+        <EmptyState
+          title={t('addresses.address.noAddressesTitle', { defaultValue: 'No Addresses Found' })}
+          description={hasFilters ? 
+            t('addresses.address.noAddressesFilterDesc', { defaultValue: 'No addresses match your search criteria.' }) :
+            t('addresses.address.noAddressesDesc', { defaultValue: 'Start by adding a new address.' })
+          }
+          icon={Home}
+          action={{
+            label: t('buttons.addAddress', { defaultValue: 'Add Address' }),
+            onClick: handleAddNew
+          }}
+        />
+      );
+    }
+
+    if (currentView === 'card') {
+      return (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {filteredAddresses.map(address => (
+            <AddressCard key={address.id} address={address} />
+          ))}
+        </div>
+      );
+    }
+
+    return (
+      <DataTable
+        columns={columns}
+        data={filteredAddresses}
+        loading={loading}
+        onRowClick={(row) => !isSelectionModeActive && handleEdit(row.original)}
+        isSelectionModeActive={isSelectionModeActive}
+        selectedRowIds={new Set(selectedItems)}
+        onRowSelectionChange={handleToggleSelection}
+        onSelectAllRows={() => handleSelectAll(filteredAddresses.map(a => a.id))}
+        currentSort={sortConfig}
+        onSortChange={handleSortChange}
+        t={t}
+      />
+    );
+  };
+
   return (
     <div className="space-y-4">
-      <div className="flex flex-col sm:flex-row items-center justify-between gap-2 sticky top-[var(--subheader-height,0px)] bg-background dark:bg-gray-900 py-3 z-10 -mx-1 px-1 md:mx-0 md:px-0 border-b dark:border-gray-700">
-        <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-100 flex items-center">
-          <HomeIcon className={`h-5 w-5 ${isRTL ? 'ml-2' : 'mr-2'} text-gray-600 dark:text-gray-400`} />
-          {t('addresses.address.title')} ({filteredAndSortedItems?.length || 0})
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row items-center justify-between gap-2">
+        <h3 className="text-lg font-semibold flex items-center gap-2">
+          <Home className="w-5 h-5 text-blue-500" />
+          {t('addresses.address.plural', { defaultValue: 'Addresses' })} ({filteredAddresses.length})
         </h3>
         <div className="flex items-center gap-2">
-            <GlobalActionButton
-                actionsConfig={memoizedGlobalActionsConfig}
-                onEditItems={handleEditWithSelectionCheck}
-                onDeleteItems={handleDeleteWithSelectionCheck}
-                isSelectionModeActive={isSelectionModeActive}
-                onCancelSelectionMode={handleCancelSelectionMode}
-                selectedItemCount={selectedItems.length}
-                itemTypeForActions={t('addresses.address.singular')}
-                t={t}
-            />
+          <GlobalActionButton
+            actionsConfig={globalActionsConfig}
+            isSelectionModeActive={isSelectionModeActive}
+            onCancelSelectionMode={handleCancelSelectionMode}
+            selectedItemCount={selectedItems.length}
+            itemTypeForActions={t('addresses.address.singular', { defaultValue: 'Address' })}
+            t={t}
+          />
+          <Button variant="outline" onClick={refreshAddresses}>
+            {t('common.refresh', { defaultValue: 'Refresh' })}
+          </Button>
+          <ViewSwitcher
+            currentView={currentView}
+            onViewChange={setCurrentView}
+            availableViews={['table', 'card']}
+            entityName={t('addresses.address.plural', { defaultValue: 'Addresses' })}
+            t={t}
+          />
         </div>
       </div>
 
-      <SearchFilterBar
-        searchQuery={filters.searchTerm} // General search query (e.g., for notes)
-        onSearchChange={handleSearch}
-        onFilterChange={(key, value) => handleFilterChange(key, value === '' ? 'all' : value)}
-        onSortChange={handleSortChange}
-        currentSort={sortConfig.key}
-        sortOptions={[
-            {value: 'created_date', label: t('sort.newestFirst', {defaultValue: 'Newest First'})},
-            {value: '-created_date', label: t('sort.oldestFirst', {defaultValue: 'Oldest First'})},
-        ]}
-        filterFields={barFilterFields}
-        onAddNew={() => {
-            if (filters.city_id === 'all' || (filters.street_id === 'all' && allStreets.length > 0)) {
-                 toast({title: t('addresses.selectCityStreetFirstTitle', { defaultValue: 'Select City & Street' }), description: t('addresses.selectCityStreetFirstDesc', { defaultValue: 'Please select a city and street from filters before adding a new address.'}), variant: 'warning'});
-                 return;
+      {/* Filters */}
+      <div className="flex flex-wrap gap-4 items-center bg-white p-4 rounded-lg border">
+        <div className="flex-1 min-w-60">
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
+            <Input
+              placeholder={t('addresses.address.searchPlaceholder', { defaultValue: 'Search addresses...' })}
+              value={filters.searchTerm}
+              onChange={(e) => handleFilterChange('searchTerm', e.target.value)}
+              className="pl-10"
+            />
+          </div>
+        </div>
+        <Select value={filters.cityId} onValueChange={(value) => handleFilterChange('cityId', value)}>
+          <SelectTrigger className="w-48">
+            <SelectValue placeholder={t('addresses.address.selectCity', { defaultValue: 'Select City' })} />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">{t('filters.allCities', { defaultValue: 'All Cities' })}</SelectItem>
+            {cities.map(city => (
+              <SelectItem key={city.id} value={city.id}>
+                {language === 'he' ? (city.name_he || city.name_en) : (city.name_en || city.name_he)}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Select value={filters.streetId} onValueChange={(value) => handleFilterChange('streetId', value)}>
+          <SelectTrigger className="w-48">
+            <SelectValue placeholder={t('addresses.address.selectStreet', { defaultValue: 'Select Street' })} />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">{t('filters.allStreets', { defaultValue: 'All Streets' })}</SelectItem>
+            {streets
+              .filter(street => filters.cityId === 'all' || street.city_id === filters.cityId)
+              .map(street => (
+                <SelectItem key={street.id} value={street.id}>
+                  {language === 'he' ? (street.name_he || street.name_en) : (street.name_en || street.name_he)}
+                </SelectItem>
+              ))
             }
-            // Pass initial values based on current filters
-            handleAddNew({ 
-                city_id: filters.city_id !== 'all' ? filters.city_id : undefined, 
-                street_id: filters.street_id !== 'all' ? filters.street_id : undefined 
-            });
-        }}
-        addNewButtonText={t('addresses.addNew', {defaultValue: 'New Address'})}
-      />
-      <DataTable
-        columns={columns}
-        data={addresses}
-        loading={loading}
-        error={error}
-        onRetry={refreshAddresses}
-        pagination={pagination}
-        onPageChange={handlePageChange}
-        onPageSizeChange={handlePageSizeChange}
-        entityName={t('addresses.titlePlural', { defaultValue: 'Addresses' })}
-        selectedItems={selectedItems}
-        onSelectRow={handleToggleSelection}
-        onSelectAll={handleSelectAll}
-        isSelectionModeActive={isSelectionModeActive}
-        setIsSelectionModeActive={setIsSelectionModeActive}
-      />
-      {/* AddressDialog is rendered internally by useEntityModule */}
+          </SelectContent>
+        </Select>
+        <Button
+          variant="outline"
+          onClick={() => {
+            handleFilterChange(null, entityConfig.initialFilters);
+            handleSortChange(entityConfig.initialSort);
+          }}
+        >
+          <RefreshCw className="w-4 h-4 mr-2" />
+          {t('buttons.resetFilters', { defaultValue: 'Reset' })}
+        </Button>
+      </div>
+
+      {/* Content */}
+      {renderContent()}
+
+      {/* Dialogs */}
+      {isDialogOpen && (
+        <AddressDialog
+          isOpen={isDialogOpen}
+          onClose={handleSelfSubmittingDialogClose}
+          address={currentItem}
+          cities={cities}
+          streets={streets}
+          t={t}
+          language={language}
+          isRTL={isRTL}
+        />
+      )}
+
+      {showBulkModal && (
+        <BulkSelectionModal
+          isOpen={showBulkModal}
+          onClose={() => setShowBulkModal(false)}
+          action={bulkAction}
+          selectedCount={selectedItems.length}
+          entityName={entityConfig.entityNamePlural}
+          onConfirm={async () => {
+            if (bulkAction === 'delete') {
+              await handleBulkDelete(selectedItems);
+            }
+            setShowBulkModal(false);
+            setSelectedItems([]);
+            setIsSelectionModeActive(false);
+          }}
+          t={t}
+        />
+      )}
+
+      {confirmDialog.open && (
+        <ConfirmationDialog
+          open={confirmDialog.open}
+          onOpenChange={(open) => setConfirmDialog({ open, item: null })}
+          onConfirm={async () => {
+            if (confirmDialog.item) {
+              await handleBulkDelete([confirmDialog.item.id]);
+            }
+            setConfirmDialog({ open: false, item: null });
+          }}
+          title={t('common.confirmDeleteTitle', { defaultValue: 'Confirm Delete' })}
+          description={t('common.confirmDeleteDescription', { defaultValue: 'Are you sure you want to delete this item?' })}
+          confirmText={t('common.delete', { defaultValue: 'Delete' })}
+          cancelText={t('common.cancel', { defaultValue: 'Cancel' })}
+          t={t}
+          isRTL={isRTL}
+        />
+      )}
     </div>
   );
-};
+}

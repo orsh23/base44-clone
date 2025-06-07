@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useCallback } from 'react';
 import { useLanguageHook } from '@/components/useLanguageHook';
 import { Tariff } from '@/api/entities';
@@ -9,8 +10,8 @@ import { Badge } from '@/components/ui/badge';
 import { Plus, Edit, Trash2, Coins, Search, FilterX, ScrollText, Code2, Stethoscope, AlertTriangle, RefreshCw } from 'lucide-react';
 import TariffDialog from './TariffDialog';
 import TariffFilterBar from './TariffFilterBar';
-import LoadingSpinner from '@/components/shared/LoadingSpinner';
-import EmptyState from '@/components/shared/EmptyState';
+import LoadingSpinner from '@/components/ui/loading-spinner';
+import EmptyState from '@/components/ui/empty-state';
 
 const SimpleCard = ({ children, className = "" }) => (
   <div className={`bg-white dark:bg-gray-800 rounded-lg shadow p-4 ${className} border border-gray-200 dark:border-gray-700 hover:shadow-md transition-shadow`}>

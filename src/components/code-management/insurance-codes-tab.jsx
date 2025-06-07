@@ -1,578 +1,395 @@
+
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { useLanguageHook } from '@/components/useLanguageHook';
 import { InsuranceCode } from '@/api/entities';
+import InsuranceCodeDialog from './insurance-code-dialog';
+import { useLanguageHook } from '@/components/useLanguageHook';
+import { useToast } from "@/components/ui/use-toast";
+import { useEntityModule } from '@/components/hooks/useEntityModule';
+import GlobalActionButton from '@/components/common/GlobalActionButton';
+import { loadFromStorage, saveToStorage } from '@/components/utils/storage';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Plus, Shield, Edit, Trash2, UploadCloud, DownloadCloud, RefreshCw } from 'lucide-react';
+import { Label } from '@/components/ui/label';
+import { Plus, Search, RefreshCw, FilterX, AlertTriangle, Pencil, Shield, CheckCircle2, FileText, UploadCloud, DownloadCloud, Edit, Trash2, SearchX } from 'lucide-react';
 import LoadingSpinner from '@/components/ui/loading-spinner';
 import EmptyState from '@/components/ui/empty-state';
-import InsuranceCodeDialog from './insurance-code-dialog';
-import InsuranceCodeCard from './InsuranceCodeCard';
-import InsuranceCodeFilters from './InsuranceCodeFilters';
-import { useToast } from "@/components/ui/use-toast";
 import { formatDistanceToNow, parseISO, isValid } from 'date-fns';
 import { enUS, he } from 'date-fns/locale';
-import ErrorDisplay from '@/components/common/ErrorDisplay';
-import GlobalActionButton from '@/components/common/GlobalActionButton';
+import StatusBadge from '@/components/common/StatusBadge';
+import { DataTable } from '@/components/ui/data-table'; 
+import InsuranceCodeCard from './InsuranceCodeCard';
+import InsuranceCodeFilters from './InsuranceCodeFilters';
 import ViewSwitcher from '@/components/common/ViewSwitcher';
-import DataTable from '@/components/shared/DataTable';
+import { getLocalizedValue, formatSafeDateDistance } from '@/components/utils/i18n-utils';
+import ErrorDisplay from '@/components/common/ErrorDisplay';
 
 const getLocaleObject = (languageCode) => (languageCode === 'he' ? he : enUS);
 
-// Helper functions for local storage
-const loadFromStorage = (key, defaultValue) => {
-  try {
-    const item = localStorage.getItem(key);
-    return item ? JSON.parse(item) : defaultValue;
-  } catch (error) {
-    console.error(`Error loading from localStorage key "${key}":`, error);
-    return defaultValue;
-  }
-};
+const booleanFilterOptions = (t, fieldNameKey, trueLabelKey, falseLabelKey) => [
+  { value: 'all', label: t(`filters.all${fieldNameKey.charAt(0).toUpperCase() + fieldNameKey.slice(1)}`, { defaultValue: `All (${t(fieldNameKey)})` }) },
+  { value: 'true', label: t(trueLabelKey, { defaultValue: `${t(fieldNameKey)}: Yes` }) },
+  { value: 'false', label: t(falseLabelKey, { defaultValue: `${t(fieldNameKey)}: No` }) },
+];
 
-const saveToStorage = (key, value) => {
-  try {
-    localStorage.setItem(key, JSON.stringify(value));
-  } catch (error) {
-    console.error(`Error saving to localStorage key "${key}":`, error);
-  }
-};
+const sortOptionsConfig = (t, language) => [
+    { value: '-updated_date', label: t('sortOptions.lastUpdated', { defaultValue: 'Last Updated' }) },
+    { value: 'code', label: t('sortOptions.code', { defaultValue: 'Code' }) },
+    { value: language === 'he' ? 'name_he' : 'name_en', label: t('sortOptions.name', { defaultValue: 'Name' }) },
+    { value: 'category_path', label: t('sortOptions.categoryPath', { defaultValue: 'Category Path' }) },
+    { value: 'requires_preauthorization', label: t('sortOptions.requiresPreAuth', { defaultValue: 'Requires Pre-Auth' }) },
+    { value: 'is_active', label: t('sortOptions.status', { defaultValue: 'Status' }) },
+];
 
 export default function InsuranceCodesTab({ globalActionsConfig: externalActionsConfig, currentView: passedView }) {
   const { t, language, isRTL } = useLanguageHook();
   const { toast } = useToast();
 
-  // State management
-  const [insuranceCodes, setInsuranceCodes] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
-
-  // Filter and pagination states
-  const [filters, setFilters] = useState(
-    loadFromStorage('insuranceCodesView_filters', {
+  const entityConfig = useMemo(() => ({
+    entitySDK: InsuranceCode,
+    entityName: t('insuranceCodes.entityNameSingular', { defaultValue: 'Insurance Code' }),
+    entityNamePlural: t('insuranceCodes.titleMultiple', { defaultValue: 'Insurance Codes' }),
+    DialogComponent: InsuranceCodeDialog,
+    initialSort: [{ id: 'code', desc: false }], // useEntityModule expects {id, desc}
+    initialFilters: {
       searchTerm: '',
-      status: 'all',
-      requiresPreAuth: 'all',
-      categoryPath: '',
-    })
-  );
-
-  const [sortConfig, setSortConfig] = useState({ key: 'updated_date', direction: 'descending' });
-  const [pagination, setPagination] = useState({ currentPage: 1, pageSize: 12, totalCount: 0, totalPages: 1 });
-
-  // Selection mode states
-  const [isSelectionModeActive, setIsSelectionModeActive] = useState(false);
-  const [selectionMode, setSelectionMode] = useState(null); // 'edit' or 'delete'
-  const [selectedItemIds, setSelectedItemIds] = useState([]);
-
-  // Dialog states
-  const [isDialogOpen, setIsDialogOpen] = useState(false);
-  const [currentItem, setCurrentItem] = useState(null);
-
-  // View state
-  const [currentView, setCurrentView] = useState(passedView || loadFromStorage('insuranceCodesView_viewPreference', 'card'));
-
-  useEffect(() => {
-    if (passedView) {
-      setCurrentView(passedView);
-      saveToStorage('insuranceCodesView_viewPreference', passedView);
-    }
-  }, [passedView]);
-
-  // Save filters to localStorage
-  useEffect(() => {
-    saveToStorage('insuranceCodesView_filters', filters);
-  }, [filters]);
-
-  // Fetch insurance codes
-  const fetchInsuranceCodes = useCallback(async (forceRefresh = false) => {
-    if (!forceRefresh && insuranceCodes.length > 0) return; // Don't refetch if we already have data
-
-    setLoading(true);
-    setError(null);
-    try {
-      const sortParam = `${sortConfig.direction === 'descending' ? '-' : ''}${sortConfig.key}`;
-      const fetchedItems = await InsuranceCode.list(sortParam);
-      setInsuranceCodes(Array.isArray(fetchedItems) ? fetchedItems : []);
-    } catch (err) {
-      console.error('Error fetching insurance codes:', err);
-      setError(err);
-      toast({
-        variant: "destructive",
-        title: t('errors.fetchFailedSingular', { entity: t('insuranceCodes.itemTitlePlural', { defaultValue: 'Insurance Codes' }) }),
-        description: err.message
-      });
-      setInsuranceCodes([]);
-    } finally {
-      setLoading(false);
-    }
-  }, [sortConfig, t, toast, insuranceCodes.length]);
-
-  useEffect(() => {
-    fetchInsuranceCodes();
-  }, []);
-
-  // Filter and sort insurance codes
-  const filteredAndSortedCodes = useMemo(() => {
-    let filtered = insuranceCodes.filter(code => {
-      const searchMatch = !filters.searchTerm ||
-        (code.code && code.code.toLowerCase().includes(filters.searchTerm.toLowerCase())) ||
-        (code.name_en && code.name_en.toLowerCase().includes(filters.searchTerm.toLowerCase())) ||
-        (code.name_he && code.name_he.toLowerCase().includes(filters.searchTerm.toLowerCase())) ||
-        (code.category_path && code.category_path.toLowerCase().includes(filters.searchTerm.toLowerCase()));
-
-      const statusMatch = filters.status === 'all' ||
-        (filters.status === 'active' && code.is_active) ||
-        (filters.status === 'inactive' && !code.is_active);
-
-      const preAuthMatch = filters.requiresPreAuth === 'all' ||
-        (filters.requiresPreAuth === 'required' && code.requires_preauthorization) ||
-        (filters.requiresPreAuth === 'not_required' && !code.requires_preauthorization);
-
-      const categoryMatch = !filters.categoryPath ||
-        (code.category_path && code.category_path.toLowerCase().includes(filters.categoryPath.toLowerCase()));
-
-      return searchMatch && statusMatch && preAuthMatch && categoryMatch;
-    });
-
-    // Apply sorting
-    if (sortConfig.key) {
-      filtered.sort((a, b) => {
-        let valueA = a[sortConfig.key];
-        let valueB = b[sortConfig.key];
-
-        if (valueA === null || valueA === undefined) return sortConfig.direction === 'descending' ? -1 : 1;
-        if (valueB === null || valueB === undefined) return sortConfig.direction === 'descending' ? 1 : -1;
-
-        if (typeof valueA === 'string' && typeof valueB === 'string') {
-          return sortConfig.direction === 'descending' ? valueB.localeCompare(valueA) : valueA.localeCompare(valueB);
-        } else if (typeof valueA === 'boolean' && typeof valueB === 'boolean') {
-          return sortConfig.direction === 'descending' ? Number(valueB) - Number(valueA) : Number(valueA) - Number(valueB);
-        } else {
-          const strA = String(valueA).toLowerCase();
-          const strB = String(valueB).toLowerCase();
-          return sortConfig.direction === 'descending' ? strB.localeCompare(strA) : strA.localeCompare(strB);
+      requiresPreauthorization: 'all',
+      isActive: 'all',
+      categoryPathQuery: '',
+    },
+    searchFields: ['code', 'name_en', 'name_he', 'category_path'],
+    filterFunction: (item, filters) => {
+        const term = filters.searchTerm?.toLowerCase();
+        if (term) {
+            const nameEn = item.name_en?.toLowerCase() || '';
+            const nameHe = item.name_he?.toLowerCase() || '';
+            if (!(item.code?.toLowerCase().includes(term) || nameEn.includes(term) || nameHe.includes(term))) return false;
         }
-      });
+        if (filters.requiresPreauthorization !== 'all' && String(item.requires_preauthorization) !== filters.requiresPreauthorization) return false;
+        if (filters.isActive !== 'all' && String(item.is_active) !== filters.isActive) return false;
+        if (filters.categoryPathQuery) {
+            const lowerCategoryPathQuery = filters.categoryPathQuery.toLowerCase();
+            if (!item.category_path?.toLowerCase().includes(lowerCategoryPathQuery)) return false;
+        }
+        return true;
+    },
+    storageKey: 'insuranceCodesView',
+  }), [t, language]); // Added language as a dependency
+
+  const {
+    items: insuranceCodes, 
+    loading, error, filters,
+    sortConfig, // This is an array: [{id: 'field', desc: boolean}] from useEntityModule
+    pagination,
+    selectedItems, setSelectedItems,
+    isDialogOpen, currentItem,
+    handleRefresh: refreshInsuranceCodes,
+    handleFilterChange, handleSortChange, handlePageChange, handlePageSizeChange,
+    handleAddNew, handleEdit, handleBulkDelete,
+    isSelectionModeActive, setIsSelectionModeActive,
+    handleToggleSelection, handleSelectAll, handleSelfSubmittingDialogClose,
+    filteredAndSortedItems, 
+  } = useEntityModule(entityConfig) || { // Added fallback for destructuring robustness
+    items: [], loading: false, error: null, filters: entityConfig.initialFilters, sortConfig: entityConfig.initialSort,
+    pagination: { currentPage: 1, pageSize: 10, totalCount: 0, totalPages: 1, pageIndex: 0 },
+    selectedItems: [], setSelectedItems: () => {},
+    isDialogOpen: false, currentItem: null,
+    handleRefresh: () => {}, handleFilterChange: () => {}, handleSortChange: () => {}, handlePageChange: () => {}, handlePageSizeChange: () => {},
+    handleAddNew: () => {}, handleEdit: () => {}, handleBulkDelete: async () => ({successCount: 0, failCount: 0}),
+    isSelectionModeActive: false, setIsSelectionModeActive: () => {},
+    handleToggleSelection: () => {}, handleSelectAll: () => {}, handleSelfSubmittingDialogClose: () => {},
+    filteredAndSortedItems: [],
+  };
+  
+  const [currentView, setCurrentView] = useState(passedView || loadFromStorage(entityConfig.storageKey + '_viewPreference', 'card'));
+
+  useEffect(() => {
+    if (passedView && passedView !== currentView) {
+      setCurrentView(passedView);
+      saveToStorage(entityConfig.storageKey + '_viewPreference', passedView);
     }
+  }, [passedView, currentView, entityConfig.storageKey]);
 
-    return filtered;
-  }, [insuranceCodes, filters, sortConfig]);
+  const resetFiltersAndSort = useCallback(() => {
+    handleFilterChange(null, entityConfig.initialFilters);
+    handleSortChange(entityConfig.initialSort);
+    setIsSelectionModeActive(false);
+    setSelectedItems([]);
+  }, [handleFilterChange, handleSortChange, entityConfig.initialFilters, entityConfig.initialSort, setIsSelectionModeActive, setSelectedItems]);
 
-  // Paginate filtered results
-  const paginatedCodes = useMemo(() => {
-    const start = (pagination.currentPage - 1) * pagination.pageSize;
-    const end = start + pagination.pageSize;
-    const totalFiltered = filteredAndSortedCodes.length;
-    
-    // Update pagination info
-    setPagination(prev => ({
-      ...prev,
-      totalCount: totalFiltered,
-      totalPages: Math.ceil(totalFiltered / prev.pageSize) || 1
-    }));
 
-    return filteredAndSortedCodes.slice(start, end);
-  }, [filteredAndSortedCodes, pagination.currentPage, pagination.pageSize]);
-
-  // Actions config
-  const insuranceCodeGlobalActionsConfig = useMemo(() => [
-    { labelKey: 'insuranceCodes.addNew', defaultLabel: 'Add Insurance Code', icon: Plus, action: () => openInsuranceCodeDialogForAdd(), type: 'add' },
-    { labelKey: 'common.edit', defaultLabel: 'Edit', icon: Edit, type: 'edit' },
-    { labelKey: 'common.delete', defaultLabel: 'Delete', icon: Trash2, type: 'delete' },
-    { isSeparator: true },
-    { labelKey: 'buttons.import', defaultLabel: 'Import', icon: UploadCloud, action: () => toast({ title: t('common.featureComingSoonTitle'), description: t('common.featureComingSoonDesc', { featureName: 'Import' }) }), disabled: true, type: 'import' },
-    { labelKey: 'buttons.export', defaultLabel: 'Export', icon: DownloadCloud, action: () => toast({ title: t('common.featureComingSoonTitle'), description: t('common.featureComingSoonDesc', { featureName: 'Export' }) }), disabled: true, type: 'export' },
-    ...(externalActionsConfig || [])
-  ], [t, toast, externalActionsConfig]);
-
-  // Dialog handlers
-  const openInsuranceCodeDialogForAdd = useCallback(() => {
-    setCurrentItem(null);
-    setIsDialogOpen(true);
-  }, []);
-
-  const openInsuranceCodeDialogForEdit = useCallback((code) => {
-    setCurrentItem(code);
-    setIsDialogOpen(true);
-  }, []);
-
-  const closeInsuranceCodeDialog = useCallback(() => {
-    setIsDialogOpen(false);
-    setCurrentItem(null);
-  }, []);
-
-  const handleInsuranceCodeDialogClose = useCallback((refresh) => {
-    if (refresh) {
-      fetchInsuranceCodes(true);
+  const handleEditWithSelectionCheck = useCallback(() => {
+    if (selectedItems.length === 1) {
+      const itemToEdit = filteredAndSortedItems.find(item => item.id === selectedItems[0]) || insuranceCodes.find(item => item.id === selectedItems[0]);
+      if (itemToEdit) handleEdit(itemToEdit);
+      else toast({ title: t('errors.itemNotFoundTitle', { defaultValue: 'Item not found' }), description: t('errors.itemNotFoundToEditDesc', { defaultValue: 'The selected item could not be found for editing.' }), variant: "warning" });
+    } else if (selectedItems.length === 0) {
+      setIsSelectionModeActive(true);
+      toast({ title: t('bulkActions.selectionModeActiveTitle', {mode: t('common.edit', { defaultValue: 'Edit' })}), description: t('bulkActions.selectItemsPromptShort', {mode: t('common.edit', { defaultValue: 'Edit' })}), variant: "info" });
+    } else {
+      toast({ title: t('bulkActions.selectOneToEditTitle', { defaultValue: 'Select only one item to edit' }), description: t('bulkActions.selectOneToEditDesc', { entity: entityConfig.entityName, defaultValue: 'Please select only one {{entity}} to edit.' }), variant: 'info' });
     }
-    closeInsuranceCodeDialog();
-  }, [fetchInsuranceCodes, closeInsuranceCodeDialog]);
+  }, [selectedItems, handleEdit, setIsSelectionModeActive, t, toast, filteredAndSortedItems, insuranceCodes, entityConfig.entityName]);
 
-  // Selection mode handlers
-  const handleStartSelectionMode = useCallback((mode) => {
-    setSelectionMode(mode);
-    setIsSelectionModeActive(true);
-    setSelectedItemIds([]);
-    toast({
-      title: t('bulkActions.selectionModeActiveTitle', { mode: t(`common.${mode}`, { defaultValue: mode }) }),
-      description: t('bulkActions.selectionModeActiveDesc', { entity: t('insuranceCodes.itemTitlePlural', { defaultValue: 'insurance codes' }), mode: t(`common.${mode}`, { defaultValue: mode }) }),
-      variant: 'info'
-    });
-  }, [t, toast]);
+  const handleDeleteWithSelectionCheck = useCallback(() => {
+    if (selectedItems.length > 0) {
+      if (window.confirm(t('common.confirmDeleteMultiple', { count: selectedItems.length, item: entityConfig.entityNamePlural, defaultValue: 'Are you sure you want to delete {{count}} {{item}}?' }))) {
+        handleBulkDelete(selectedItems);
+      }
+    } else {
+      setIsSelectionModeActive(true);
+      toast({ title: t('bulkActions.selectionModeActiveTitle', {mode: t('common.delete', { defaultValue: 'Delete' })}), description: t('bulkActions.selectItemsPromptShort', {mode: t('common.delete', { defaultValue: 'Delete' })}), variant: "info" });
+    }
+  }, [selectedItems, handleBulkDelete, setIsSelectionModeActive, t, toast, entityConfig.entityNamePlural]);
 
   const handleCancelSelectionMode = useCallback(() => {
     setIsSelectionModeActive(false);
-    setSelectionMode(null);
-    setSelectedItemIds([]);
-  }, []);
+    setSelectedItems([]);
+  }, [setIsSelectionModeActive, setSelectedItems]);
 
-  const handleToggleSelection = useCallback((codeId) => {
-    setSelectedItemIds(prev => {
-      if (prev.includes(codeId)) {
-        return prev.filter(id => id !== codeId);
-      } else {
-        return [...prev, codeId];
-      }
-    });
-  }, []);
+  const memoizedGlobalActionsConfig = useMemo(() => [
+    { labelKey: 'insuranceCodes.addNewCode', defaultLabel: 'Add New Code', icon: Plus, action: handleAddNew, type: 'add'},
+    { labelKey: 'common.edit', defaultLabel: 'Edit', icon: Edit, action: handleEditWithSelectionCheck, type: 'edit', selectionSensitive: true, requiredSelectionCount: 1 },
+    { labelKey: 'common.delete', defaultLabel: 'Delete', icon: Trash2, action: handleDeleteWithSelectionCheck, type: 'delete', selectionSensitive: true, requiredSelectionCount: 'multiple' },
+    { isSeparator: true },
+    { labelKey: 'buttons.import', defaultLabel: 'Import Codes', icon: UploadCloud, action: () => toast({ title: t('common.featureComingSoonTitle', { defaultValue: 'Feature Coming Soon!' }), description: t('common.featureComingSoonDesc', { featureName: t('buttons.import', { defaultValue: 'Import' }), defaultValue: 'The {{featureName}} feature is under development.' }) }), disabled: true, type: 'import' },
+    { labelKey: 'buttons.export', defaultLabel: 'Export Codes', icon: DownloadCloud, action: () => toast({ title: t('common.featureComingSoonTitle', { defaultValue: 'Feature Coming Soon!' }), description: t('common.featureComingSoonDesc', { featureName: t('buttons.export', { defaultValue: 'Export' }), defaultValue: 'The {{featureName}} feature is under development.' }) }), disabled: true, type: 'export' },
+    ...(externalActionsConfig || [])
+  ], [handleAddNew, externalActionsConfig, t, toast, handleEditWithSelectionCheck, handleDeleteWithSelectionCheck]);
 
-  const handleSelectAll = useCallback(() => {
-    if (selectedItemIds.length === paginatedCodes.length) {
-      setSelectedItemIds([]);
-    } else {
-      setSelectedItemIds(paginatedCodes.map(code => code.id));
-    }
-  }, [paginatedCodes, selectedItemIds]);
-
-  const handleConfirmAction = useCallback(async () => {
-    if (selectedItemIds.length === 0) {
-      toast({
-        title: t('bulkActions.noItemsSelectedTitle'),
-        description: t('bulkActions.selectItemsPrompt', { mode: t(`common.${selectionMode}`, { defaultValue: selectionMode }) }),
-        variant: 'warning'
-      });
-      return;
-    }
-
-    if (selectionMode === 'edit') {
-      if (selectedItemIds.length === 1) {
-        const codeToEdit = filteredAndSortedCodes.find(c => c.id === selectedItemIds[0]);
-        if (codeToEdit) {
-          openInsuranceCodeDialogForEdit(codeToEdit);
-          handleCancelSelectionMode();
-        }
-      } else {
-        toast({
-          title: t('bulkActions.selectOneToEditTitle'),
-          description: t('bulkActions.selectOneToEditDesc', { entity: t('insuranceCodes.itemTitleSingular', { defaultValue: 'insurance code' }) }),
-          variant: 'warning'
-        });
-      }
-    } else if (selectionMode === 'delete') {
-      if (confirm(t('insuranceCodes.bulkDeleteConfirmMessage', { count: selectedItemIds.length, itemName: selectedItemIds.length === 1 ? t('insuranceCodes.itemTitleSingular', { defaultValue: 'insurance code' }) : t('insuranceCodes.itemTitlePlural', { defaultValue: 'insurance codes' }) }))) {
-        try {
-          setLoading(true);
-          await Promise.all(selectedItemIds.map(id => InsuranceCode.delete(id)));
-          toast({
-            title: t('insuranceCodes.bulkDeleteSuccess', { count: selectedItemIds.length }),
-            variant: 'success'
-          });
-          handleCancelSelectionMode();
-          await fetchInsuranceCodes(true);
-        } catch (err) {
-          toast({
-            title: t('common.deleteError', { entity: t('insuranceCodes.itemTitlePlural', { defaultValue: 'Insurance Codes' }) }),
-            description: err.message,
-            variant: 'destructive'
-          });
-        } finally {
-          setLoading(false);
-        }
-      }
-    }
-  }, [selectedItemIds, selectionMode, t, toast, filteredAndSortedCodes, openInsuranceCodeDialogForEdit, handleCancelSelectionMode, fetchInsuranceCodes]);
-
-  // Filter handlers
-  const handleFiltersChange = useCallback((newFilters) => {
-    setFilters(prev => ({ ...prev, ...newFilters }));
-    setPagination(prev => ({ ...prev, currentPage: 1 })); // Reset to first page when filters change
-    handleCancelSelectionMode();
-  }, [handleCancelSelectionMode]);
-
-  const handleResetFilters = useCallback(() => {
-    const defaultFilters = { searchTerm: '', status: 'all', requiresPreAuth: 'all', categoryPath: '' };
-    setFilters(defaultFilters);
-    setSortConfig({ key: 'updated_date', direction: 'descending' });
-    setPagination(prev => ({ ...prev, currentPage: 1 }));
-    handleCancelSelectionMode();
-    saveToStorage('insuranceCodesView_filters', defaultFilters);
-  }, [handleCancelSelectionMode]);
-
-  const handleSortChange = useCallback((newSortConfig) => {
-    setSortConfig(newSortConfig);
-    setPagination(prev => ({ ...prev, currentPage: 1 }));
-    handleCancelSelectionMode();
-  }, [handleCancelSelectionMode]);
-
-  const handlePageChange = useCallback((newPage) => {
-    setPagination(prev => ({ ...prev, currentPage: newPage }));
-    handleCancelSelectionMode();
-  }, [handleCancelSelectionMode]);
-
-  // Table columns
-  const insuranceCodeColumnsForTable = useMemo(() => [
-    { 
-      accessorKey: 'code', 
-      header: t('insuranceCodes.fields.code', {defaultValue: 'Code'}),
-      cell: ({ row }) => row.original.code || t('common.notSet', {defaultValue: 'N/A'}),
+  const insuranceCodeTableColumns = useMemo(() => [
+    { accessorKey: 'code', header: t('insuranceCodes.fields.code', { defaultValue: 'Code' }), enableSorting: true },
+    {
+      accessorKey: language === 'he' ? 'name_he' : 'name_en',
+      header: t('insuranceCodes.fields.name', { defaultValue: 'Name' }),
       enableSorting: true,
+      cell: ({ row }) => getLocalizedValue(row.original, 'name', language, 'en', t('common.notSet', { defaultValue: 'N/A' }))
     },
-    { 
-      accessorKey: 'name_en', 
-      header: t('insuranceCodes.fields.nameEn', {defaultValue: 'Name (EN)'}),
-      cell: ({ row }) => row.original.name_en || t('common.notSet', {defaultValue: 'N/A'}),
+    {
+      accessorKey: 'category_path',
+      header: t('insuranceCodes.fields.categoryPath', { defaultValue: 'Category Path' }),
       enableSorting: true,
+      cell: ({ row }) => row.original.category_path || t('common.notSet', { defaultValue: 'N/A' })
     },
-    { 
-      accessorKey: 'category_path', 
-      header: t('insuranceCodes.fields.categoryPath', {defaultValue: 'Category Path'}),
-      cell: ({ row }) => row.original.category_path || t('common.notSet', {defaultValue: 'N/A'}),
-      enableSorting: true,
-    },
-    { 
-      accessorKey: 'requires_preauthorization', 
-      header: t('insuranceCodes.fields.requiresPreAuth', {defaultValue: 'Pre-Auth'}),
+    {
+      accessorKey: 'requires_preauthorization',
+      header: t('insuranceCodes.fields.requiresPreAuthShort', { defaultValue: 'Pre-Auth' }),
       cell: ({ row }) => (
-        <Badge className={`text-xs ${row.original.requires_preauthorization ? 'bg-orange-100 text-orange-700 dark:bg-orange-700/30 dark:text-orange-200' : 'bg-gray-100 text-gray-600 dark:bg-gray-700/30 dark:text-gray-300'}`}>
-          {row.original.requires_preauthorization ? t('common.required', {defaultValue: 'Required'}) : t('common.notRequired', {defaultValue: 'Not Required'})}
-        </Badge>
+        row.original.requires_preauthorization ? t('common.yes', { defaultValue: 'Yes' }) : t('common.no', { defaultValue: 'No' })
       ),
-      enableSorting: true,
+      enableSorting: true
     },
-    { 
-      accessorKey: 'is_active', 
-      header: t('insuranceCodes.fields.isActive', {defaultValue: 'Status'}),
-      cell: ({ row }) => (
-        <Badge className={`text-xs ${row.original.is_active ? 'bg-green-100 text-green-700 dark:bg-green-700/30 dark:text-green-200' : 'bg-gray-100 text-gray-600 dark:bg-gray-700/30 dark:text-gray-300'}`}>
-          {row.original.is_active ? t('status.active', {defaultValue: 'Active'}) : t('status.inactive', {defaultValue: 'Inactive'})}
-        </Badge>
-      ),
-      enableSorting: true,
+    {
+      accessorKey: 'is_active',
+      header: t('insuranceCodes.fields.isActiveShort', { defaultValue: 'Status' }),
+      cell: ({ row }) => <StatusBadge status={row.original.is_active ? 'active' : 'inactive'} t={t} />,
+      enableSorting: true
     },
-  ], [t]);
+    {
+      accessorKey: 'updated_date',
+      header: t('fields.lastUpdated', { defaultValue: 'Last Updated' }),
+      cell: ({ row }) => formatSafeDateDistance(row.original.updated_date, language),
+      enableSorting: true
+    },
+  ], [t, language]);
 
-  if (loading && insuranceCodes.length === 0 && !error) {
-    return <LoadingSpinner message={t('messages.loadingData', { item: t('insuranceCodes.itemTitlePlural', { defaultValue: 'insurance codes' }) })} isFullScreen={false} />;
-  }
+  const currentSortOptionValue = useMemo(() => {
+    if (!sortConfig || !Array.isArray(sortConfig) || sortConfig.length === 0 || !sortConfig[0] || !sortConfig[0].id) {
+      // Fallback to initialSort if sortConfig is not properly formed
+      const initialSortItem = entityConfig.initialSort[0];
+      if (initialSortItem && initialSortItem.id) {
+        return initialSortItem.desc ? `-${initialSortItem.id}` : initialSortItem.id;
+      }
+      return '-updated_date'; // Ultimate fallback
+    }
+    const currentSort = sortConfig[0];
+    return currentSort.desc ? `-${currentSort.id}` : currentSort.id;
+  }, [sortConfig, entityConfig.initialSort]);
+  
+  const cardViewSortConfig = useMemo(() => {
+    if (Array.isArray(sortConfig) && sortConfig.length > 0 && sortConfig[0] && typeof sortConfig[0].id === 'string') {
+      return {
+        key: sortConfig[0].id,
+        direction: sortConfig[0].desc ? 'descending' : 'ascending'
+      };
+    }
+    // Fallback if sortConfig from useEntityModule is not in the expected array format or is empty
+    const initialSortItem = entityConfig.initialSort[0];
+    if (initialSortItem && initialSortItem.id) {
+        return { key: initialSortItem.id, direction: initialSortItem.desc ? 'descending' : 'ascending' };
+    }
+    return { key: 'updated_date', direction: 'descending' }; // Default sort for card view filter
+  }, [sortConfig, entityConfig.initialSort]);
 
-  if (error && insuranceCodes.length === 0) {
-    return <ErrorDisplay errorMessage={error.message || String(error)} onRetry={() => fetchInsuranceCodes(true)} />;
-  }
+  const handleSortFilterChange = (value) => {
+    const isDesc = value.startsWith('-');
+    const field = isDesc ? value.substring(1) : value;
+    // Ensure handleSortChange is called with the array format useEntityModule expects
+    handleSortChange([{ id: field, desc: isDesc }]);
+  };
 
-  const noItems = pagination.totalCount === 0;
-  const noFiltersApplied = Object.values(filters || {}).every(val =>
-    !val || (typeof val === 'string' && (val === '' || val === 'all')) || (Array.isArray(val) && val.length === 0)
-  );
 
-  return (
-    <div className="space-y-4">
-      {/* Header with conditional action bar */}
-      {isSelectionModeActive ? (
-        <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-3">
-              <Shield className="h-5 w-5 text-blue-600 dark:text-blue-400" />
-              <div>
-                <h3 className="text-sm font-medium text-blue-900 dark:text-blue-100">
-                  {t('bulkActions.selectedCount', { count: selectedItemIds.length })} • {t(`common.${selectionMode}Mode`, { defaultValue: `${selectionMode} Mode` })}
-                </h3>
-                <p className="text-xs text-blue-700 dark:text-blue-300">
-                  {selectedItemIds.length === 0 
-                    ? t('bulkActions.selectItemsPromptShort', { mode: t(`common.${selectionMode}`, { defaultValue: selectionMode }) })
-                    : t('bulkActions.itemsSelectedDesc', { count: selectedItemIds.length, entity: t('insuranceCodes.itemTitlePlural', { defaultValue: 'insurance codes' }) })
-                  }
-                </p>
-              </div>
-            </div>
-            <div className="flex items-center space-x-2">
-              <Button variant="outline" size="sm" onClick={handleSelectAll} disabled={paginatedCodes.length === 0}>
-                {selectedItemIds.length === paginatedCodes.length ? t('bulkActions.deselectAll', { defaultValue: 'Deselect All' }) : t('bulkActions.selectAllVisible', { defaultValue: 'Select All Visible' })}
-              </Button>
-              <Button variant="outline" size="sm" onClick={handleCancelSelectionMode}>
-                {t('common.cancel', { defaultValue: 'Cancel' })}
-              </Button>
-              <Button 
-                size="sm" 
-                onClick={handleConfirmAction} 
-                disabled={selectedItemIds.length === 0}
-                className={selectionMode === 'delete' ? 'bg-red-600 hover:bg-red-700 text-white' : 'bg-blue-600 hover:bg-blue-700 text-white'}
-              >
-                {t(`common.${selectionMode}`, { defaultValue: selectionMode })} ({selectedItemIds.length})
-              </Button>
-            </div>
-          </div>
-        </div>
-      ) : (
-        <div className="flex flex-col sm:flex-row items-center justify-between gap-2 sticky top-[calc(var(--header-height,0px)+var(--subheader-height,0px))] bg-background dark:bg-gray-900 py-3 z-10 -mx-1 px-1 md:mx-0 md:px-0 border-b dark:border-gray-700">
-          <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-100 flex items-center">
-            <Shield className={`h-5 w-5 ${isRTL ? 'ml-2' : 'mr-2'} text-gray-600 dark:text-gray-400`} />
-            {t('insuranceCodes.titleMultiple', { defaultValue: 'Insurance Codes' })} ({loading && typeof pagination.totalCount === 'undefined' ? t('common.loadingEllipsis', { defaultValue: "..." }) : pagination.totalCount || 0})
-          </h3>
-          <div className="flex items-center gap-2">
-            <GlobalActionButton
-              actionsConfig={insuranceCodeGlobalActionsConfig}
-              onStartSelectionMode={handleStartSelectionMode}
-              itemTypeForActions={t('insuranceCodes.itemTitleSingular', { defaultValue: 'Insurance Code' })}
-              t={t} isRTL={isRTL}
-            />
-            <Button onClick={() => fetchInsuranceCodes(true)} variant="outline" size="sm" disabled={loading}>
-              <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''} ${isRTL ? 'ml-1.5' : 'mr-1.5'}`} />
-              {t('buttons.refresh', { defaultValue: 'Refresh' })}
-            </Button>
-            <ViewSwitcher
-              currentView={currentView}
-              onViewChange={(view) => { setCurrentView(view); handleCancelSelectionMode(); saveToStorage('insuranceCodesView_viewPreference', view); }}
-              availableViews={['card', 'table']}
-              entityName="insuranceCodes"
-              t={t}
-            />
-          </div>
-        </div>
-      )}
+  const renderContent = () => {
+    if (loading && insuranceCodes.length === 0 && !error) {
+      return <LoadingSpinner message={t('messages.loadingData', { item: entityConfig.entityNamePlural, defaultValue: 'Loading insurance codes...' })} isFullScreen={false} />;
+    }
+    if (error && insuranceCodes.length === 0) {
+      return null;
+    }
 
-      {/* Filters */}
-      <InsuranceCodeFilters
-        filters={filters}
-        onFiltersChange={handleFiltersChange}
-        onResetFilters={handleResetFilters}
-        sortConfig={sortConfig}
-        onSortChange={handleSortChange}
-        allInsuranceCodes={filteredAndSortedCodes || []}
-        t={t} language={language} isRTL={isRTL}
-        currentView={currentView}
-      />
+    const noItems = pagination.totalCount === 0;
+    const noFiltersApplied = Object.entries(filters || {}).every(([key, val]) => !val || val === 'all');
 
-      {/* Error display for partial errors */}
-      {error && insuranceCodes.length > 0 && <ErrorDisplay errorMessage={error.message || String(error)} onRetry={() => fetchInsuranceCodes(true)} />}
-
-      {/* Loading indicator for additional data */}
-      {loading && insuranceCodes.length > 0 && (
-        <LoadingSpinner message={t('messages.loadingMoreData', { defaultValue: 'Loading more data...' })} isFullScreen={false} />
-      )}
-
-      {/* Main content based on view */}
-      {currentView === 'card' && (
+    if (currentView === 'card') {
+      return (
         <>
-          {noItems ? (
+          {noItems && noFiltersApplied ? (
             <EmptyState
-              icon={Shield}
-              title={noFiltersApplied
-                ? t('insuranceCodes.noCodesYetTitle', { defaultValue: 'No Insurance Codes Yet' })
-                : t('insuranceCodes.noCodesMatchTitle', { defaultValue: 'No Insurance Codes Match Filters' })}
-              description={noFiltersApplied
-                ? t('insuranceCodes.noCodesYetDesc', { defaultValue: 'Get started by adding a new insurance code.' })
-                : t('insuranceCodes.noCodesMatchDesc', { defaultValue: 'Try adjusting your search or filter criteria.' })}
-              actionButton={
-                noFiltersApplied && (
-                  <Button onClick={openInsuranceCodeDialogForAdd} variant="default" size="sm">
-                    <Plus className={`h-4 w-4 ${isRTL ? 'ml-2' : 'mr-2'}`} />
-                    {t('insuranceCodes.addNew', { defaultValue: 'Add Insurance Code' })}
-                  </Button>
-                )
-              }
+              icon={Shield} 
+              title={t('insuranceCodes.emptyState.noCodesTitle', { defaultValue: 'No Insurance Codes Yet' })}
+              description={t('insuranceCodes.emptyState.noCodesDesc', { defaultValue: 'Get started by adding a new insurance code.' })}
+              actionButton={<Button onClick={() => handleAddNew()} className="bg-emerald-600 hover:bg-emerald-700 dark:bg-emerald-500 dark:hover:bg-emerald-600"><Plus className="mr-2 h-4 w-4" />{t('insuranceCodes.addNewCode', { defaultValue: 'Add New Code' })}</Button>}
+            />
+          ) : noItems && !noFiltersApplied ? (
+            <EmptyState
+              icon={SearchX}
+              title={t('insuranceCodes.emptyState.noCodesMatchTitle', { defaultValue: 'No Insurance Codes Match Filters' })}
+              description={t('insuranceCodes.emptyState.noCodesMatchDesc', { defaultValue: 'Try adjusting your search or filter criteria.' })}
             />
           ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-              {paginatedCodes.map(code => (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+              {insuranceCodes.map(code => (
                 <InsuranceCodeCard
                   key={code.id}
-                  code={code}
-                  currentLocale={getLocaleObject(language)}
-                  t={t}
-                  isRTL={isRTL}
+                  codeItem={code}
+                  onEdit={() => handleEdit(code)}
+                  language={language}
                   isSelectionModeActive={isSelectionModeActive}
-                  isSelected={selectedItemIds.includes(code.id)}
+                  isSelected={selectedItems.includes(code.id)}
                   onToggleSelection={() => handleToggleSelection(code.id)}
-                  onCardClick={openInsuranceCodeDialogForEdit}
                 />
               ))}
             </div>
           )}
-          {pagination.totalPages > 1 && (
-            <div className="mt-6 flex justify-center items-center space-x-2">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => handlePageChange(pagination.currentPage - 1)}
-                disabled={pagination.currentPage === 1 || loading}
-              >
+           {Math.ceil(pagination.totalCount / pagination.pageSize) > 1 && (
+             <div className="mt-6 flex justify-center items-center space-x-2 rtl:space-x-reverse">
+              <Button variant="outline" size="sm" onClick={() => handlePageChange(pagination.currentPage - 1)} disabled={pagination.currentPage === 1 || loading}>
                 {t('buttons.previous', { defaultValue: 'Previous' })}
               </Button>
               <span className="text-sm text-gray-700 dark:text-gray-300">
-                {t('common.pageIndicator', { currentPage: pagination.currentPage, totalPages: pagination.totalPages })}
+                {t('dataTable.pageInfo', { page: pagination.currentPage, totalPages: Math.ceil(pagination.totalCount / pagination.pageSize) || 1, defaultValue: 'Page {{page}} of {{totalPages}}' })}
               </span>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => handlePageChange(pagination.currentPage + 1)}
-                disabled={pagination.currentPage >= pagination.totalPages || loading}
-              >
+              <Button variant="outline" size="sm" onClick={() => handlePageChange(pagination.currentPage + 1)} disabled={pagination.currentPage >= (Math.ceil(pagination.totalCount / pagination.pageSize) || 1) || loading}>
                 {t('buttons.next', { defaultValue: 'Next' })}
               </Button>
             </div>
           )}
         </>
+      );
+    }
+
+    if (currentView === 'table') {
+        return (
+            <DataTable
+                columns={insuranceCodeTableColumns}
+                data={insuranceCodes}
+                loading={loading}
+                error={error}
+                onRetry={refreshInsuranceCodes}
+                entityName={entityConfig.entityNamePlural}
+                emptyMessage={noFiltersApplied ? t('insuranceCodes.emptyState.noCodesDesc', { defaultValue: 'Get started by adding a new insurance code.' }) : t('insuranceCodes.emptyState.noCodesMatchDesc', { defaultValue: 'Try adjusting your search or filter criteria.' })}
+                onRowClick={(row) => handleEdit(row.original)}
+                isSelectionModeActive={isSelectionModeActive}
+                selectedRowIds={new Set(selectedItems)}
+                onRowSelectionChange={handleToggleSelection}
+                onSelectAllRows={() => handleSelectAll(insuranceCodes.map(c => c.id))}
+                currentSort={sortConfig}
+                onSortChange={handleSortChange}
+                pagination={{
+                    currentPage: pagination.currentPage,
+                    pageSize: pagination.pageSize,
+                    totalItems: pagination.totalCount,
+                    totalPages: Math.ceil(pagination.totalCount / pagination.pageSize) || 1,
+                }}
+                onPageChange={handlePageChange}
+                onPageSizeChange={handlePageSizeChange}
+                t={t}
+            />
+        );
+    }
+    return null;
+  };
+
+  return (
+    <div className="space-y-4 p-1 md:p-0">
+      <div className="flex flex-col sm:flex-row items-center justify-between gap-2 sticky top-[calc(var(--header-height,0px)+var(--subheader-height,0px))] bg-background dark:bg-gray-900 py-3 z-10 -mx-1 px-1 md:mx-0 md:px-0 border-b dark:border-gray-700">
+        <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-100 flex items-center">
+          <Shield className={`h-5 w-5 ${isRTL ? 'ml-2' : 'mr-2'} text-gray-600 dark:text-gray-400`} /> 
+          {t('insuranceCodes.listTitle', { defaultValue: "Insurance Codes" })}{' '}
+          <span className="text-sm font-normal text-gray-500 dark:text-gray-400">
+             ({loading ? t('common.loadingEllipsis', { defaultValue: "..." }) : pagination.totalCount || 0})
+          </span>
+        </h3>
+        <div className="flex items-center gap-2">
+            <GlobalActionButton
+                actionsConfig={memoizedGlobalActionsConfig}
+                isSelectionModeActive={isSelectionModeActive}
+                onCancelSelectionMode={handleCancelSelectionMode}
+                selectedItemCount={selectedItems.length}
+                itemTypeForActions={entityConfig.entityName}
+                t={t} isRTL={isRTL}
+              />
+          <Button onClick={refreshInsuranceCodes} variant="outline" size="sm" className="dark:text-gray-300 dark:border-gray-500 dark:hover:bg-gray-700" disabled={loading}>
+            <RefreshCw className={`h-4 w-4 ${isRTL ? 'ml-2' : 'mr-2'} ${loading ? 'animate-spin' : ''}`} />
+            {t('buttons.refresh', { defaultValue: "Refresh" })}
+          </Button>
+          <ViewSwitcher
+            currentView={currentView}
+            onViewChange={(view) => { setCurrentView(view); saveToStorage(entityConfig.storageKey + '_viewPreference', view); handleCancelSelectionMode(); }}
+            availableViews={['card', 'table']}
+            entityName={t('insuranceCodes.entityNamePlural', { defaultValue: 'Insurance Codes' })}
+            t={t} isRTL={isRTL}
+          />
+        </div>
+      </div>
+
+      <InsuranceCodeFilters
+        filters={filters || entityConfig.initialFilters} 
+        onFiltersChange={handleFilterChange || (() => {})} 
+        onResetFilters={resetFiltersAndSort || (() => {})} 
+        // Pass the derived cardViewSortConfig for the 'card' view scenario
+        sortConfig={cardViewSortConfig}
+        onSortChange={(newSort) => { 
+            if (newSort && newSort.key) {
+                 handleSortChange([{ id: newSort.key, desc: newSort.direction === 'descending' }]);
+            }
+        }}
+        currentView={currentView} 
+        sortOptionValue={currentSortOptionValue}
+        onSortOptionChange={handleSortFilterChange} 
+        sortOptions={sortOptionsConfig(t, language)}
+        preAuthOptions={booleanFilterOptions(t, 'requiresPreAuth', 'filters.requiresPreAuthTrue', 'filters.requiresPreAuthFalse')}
+        statusOptions={booleanFilterOptions(t, 'isActive', 'filters.isActiveTrue', 'filters.isActiveFalse')}
+        t={t} language={language} isRTL={isRTL}
+        loading={loading}
+      />
+
+      {error && insuranceCodes.length > 0 && (
+        <div className="p-3 my-3 bg-yellow-50 dark:bg-yellow-900/30 border border-yellow-400 dark:border-yellow-500 text-yellow-700 dark:text-yellow-200 rounded-md flex items-center gap-2 text-sm">
+          <AlertTriangle className="h-4 w-4" />
+          <span>{t('errors.partialLoadWarning', { entity: entityConfig.entityNamePlural, message: String(error.message || error), defaultValue: 'Some items could not be loaded due to an error: {{message}}' })}</span>
+        </div>
       )}
 
-      {currentView === 'table' && (
-        <DataTable
-          columns={insuranceCodeColumnsForTable}
-          data={paginatedCodes}
-          loading={loading}
-          error={error}
-          onRetry={() => fetchInsuranceCodes(true)}
-          entityName={t('insuranceCodes.itemTitlePlural', { defaultValue: 'Insurance Codes' })}
-          emptyMessage={noFiltersApplied 
-            ? t('insuranceCodes.noCodesYetDesc', { defaultValue: 'Get started by adding a new insurance code.' })
-            : t('insuranceCodes.noCodesMatchDesc', { defaultValue: 'Try adjusting your search or filter criteria.' })
-          }
-          onRowClick={(row) => openInsuranceCodeDialogForEdit(row.original)}
-          isSelectionModeActive={isSelectionModeActive}
-          selectedRowIds={new Set(selectedItemIds)}
-          onRowSelectionChange={(itemId, isSelected) => {
-            if (isSelected) {
-              setSelectedItemIds(prev => [...prev, itemId]);
-            } else {
-              setSelectedItemIds(prev => prev.filter(id => id !== itemId));
-            }
-          }}
-          onSelectAllRows={handleSelectAll}
-          currentSort={[{ id: sortConfig.key, desc: sortConfig.direction === 'descending' }]}
-          onSortChange={(newSortConfig) => {
-            if (newSortConfig.length > 0) {
-              handleSortChange({
-                key: newSortConfig[0].id,
-                direction: newSortConfig[0].desc ? 'descending' : 'ascending'
-              });
-            }
-          }}
-          pagination={{
-            currentPage: pagination.currentPage,
-            totalPages: pagination.totalPages,
-            totalItems: pagination.totalCount,
-            pageSize: pagination.pageSize
-          }}
-          onPageChange={handlePageChange}
-        />
-      )}
+      {renderContent()}
 
-      {/* Dialog */}
       {isDialogOpen && (
         <InsuranceCodeDialog
           isOpen={isDialogOpen}
-          onClose={handleInsuranceCodeDialogClose}
-          insuranceCode={currentItem}
+          onClose={(refresh, actionType, itemName) => handleSelfSubmittingDialogClose(refresh, actionType, itemName)}
+          codeItem={currentItem}
         />
       )}
     </div>

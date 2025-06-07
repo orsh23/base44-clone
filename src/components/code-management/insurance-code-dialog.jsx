@@ -1,3 +1,4 @@
+
 import React, { useEffect } from 'react';
     import { useForm, Controller } from 'react-hook-form';
     // import { zodResolver } from '@hookform/resolvers/zod'; // Removed
@@ -8,7 +9,8 @@ import React, { useEffect } from 'react';
     import { Checkbox } from '@/components/ui/checkbox';
     import { Label } from '@/components/ui/label';
     import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogClose } from '@/components/ui/dialog';
-    import FormField from '@/components/shared/FormField';
+// Corrected FormField import path
+    import FormField from '@/components/shared/forms/FormField';
 
     // Zod schema removed. Basic validation can be done via react-hook-form's built-in validation if needed.
 

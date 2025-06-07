@@ -5,7 +5,8 @@ import { Doctor } from '@/api/entities';
 import { Provider } from '@/api/entities';
 import { useLanguageHook } from '@/components/useLanguageHook';
 import { useToast } from '@/components/ui/use-toast';
-import DataTable from '@/components/shared/DataTable';
+// Corrected DataTable import path
+import DataTable from '@/components/ui/data-table';
 import LinkageDialog from './LinkageDialog';
 import LinkageFilterBar from './LinkageFilterBar';
 import { Button } from '@/components/ui/button';
@@ -85,10 +86,11 @@ export default function ProviderDoctorLinkageTab() {
     setLoading(true);
     setError(null);
     try {
+      // Add staggered delays to prevent rate limiting on multiple simultaneous calls
       const [docData, provData, affData] = await Promise.all([
-        Doctor.list(),
-        Provider.list(),
-        DoctorProviderAffiliation.list() // Assuming default sort or handle sort later
+        new Promise(resolve => setTimeout(() => resolve(Doctor.list()), 100)),
+        new Promise(resolve => setTimeout(() => resolve(Provider.list()), 300)),
+        new Promise(resolve => setTimeout(() => resolve(DoctorProviderAffiliation.list()), 600))
       ]);
 
       const docMap = {};
@@ -109,7 +111,18 @@ export default function ProviderDoctorLinkageTab() {
 
     } catch (err) {
       console.error("Error fetching data for Linkage tab", err);
-      const errorMessage = err.message || t('errors.fetchFailedGeneral', { item: t('linkage.itemTitlePlural') });
+      let errorMessage = err.message || t('errors.fetchFailedGeneral', { item: t('linkage.itemTitlePlural') });
+
+      if (err.message?.includes('Rate limit') || err.response?.status === 429) {
+        errorMessage = t('errors.rateLimitExceeded', { defaultValue: 'Service is temporarily busy. Please try again in a few moments.' });
+        // For rate limiting, set a retry timer
+        setTimeout(() => {
+          if (!forceRefresh) { // Only auto-retry if this wasn't a manual refresh
+            fetchData(true);
+          }
+        }, 5000);
+      }
+
       setError(errorMessage);
       toast({ title: t('errors.dataLoadErrorTitle'), description: errorMessage, variant: 'destructive' });
     } finally {

@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useCallback } from 'react';
 import { City } from '@/api/entities';
 import { Street } from '@/api/entities';
@@ -6,11 +7,12 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
-import FormField from '@/components/forms/FormField';
+import FormField from '@/components/shared/forms/FormField'; // Corrected import path
 import BilingualInput from '@/components/forms/BilingualInput';
 import { useLanguageHook } from '@/components/useLanguageHook';
 import { useToast } from "@/components/ui/use-toast";
-import { PlusCircle, Pencil, RotateCcw } from 'lucide-react';
+import { PlusCircle, Edit2 } from 'lucide-react'; // Replaced Pencil with Edit2, removed RotateCcw as per outline
+import AddressDialog from './AddressDialog'; // Added new import
 
 const AddressSelector = ({
   currentAddressId, // ID of the currently linked address for editing
@@ -93,7 +95,7 @@ const AddressSelector = ({
         setIsEditing(true); // Start in editing mode if no address is linked
         setCurrentDisplayAddress(null);
     }
-  }, [currentAddressId, cities]); // Depend on cities to ensure they are loaded for formatting
+  }, [currentAddressId, cities, fetchStreetsForCity, t, toast]); // Added fetchStreetsForCity, t, toast to dependencies
 
   const fetchStreetsForCity = useCallback(async (cityId, resetStreetSelection = true) => {
     if (!cityId) {
@@ -132,7 +134,7 @@ const AddressSelector = ({
   // Handle selection from a dropdown of existing addresses on street (if implemented)
   // const handleExistingAddressChange = (addressId) => { ... fill form fields ... }
 
-  const resetFormFields = () => {
+  const resetFormFields = useCallback(() => { // Wrapped in useCallback
     setSelectedCityId('');
     setSelectedStreetId('');
     setSelectedExistingAddressId('');
@@ -143,7 +145,7 @@ const AddressSelector = ({
     setNotesHe('');
     setStreets([]);
     setExistingAddressesOnStreet([]);
-  };
+  }, []);
 
   const handleSaveAddress = async () => {
     if (!selectedCityId || !selectedStreetId || !houseNumber) {
@@ -181,7 +183,7 @@ const AddressSelector = ({
     }
   };
   
-  const formatDisplayAddress = () => {
+  const formatDisplayAddress = useCallback(() => { // Wrapped in useCallback
     if (!currentDisplayAddress || !cities.length) return t('addresses.noAddressSelected', {defaultValue: "No address selected."});
     
     const city = cities.find(c => c.id === currentDisplayAddress.city_id);
@@ -202,7 +204,7 @@ const AddressSelector = ({
     ].filter(Boolean);
     
     return language === 'he' ? parts.reverse().join(', ') : parts.join(', ');
-  };
+  }, [currentDisplayAddress, cities, language, streets, t]);
 
   if (isLoading && !isEditing) { // Show loader only when loading initial address details
       return <p>{t('common.loadingAddress', {defaultValue: "Loading address details..."})}</p>;
@@ -220,7 +222,7 @@ const AddressSelector = ({
         )}
         <div className="flex gap-2 pt-1">
             <Button variant="outline" size="sm" onClick={() => setIsEditing(true)}>
-                <Pencil className="mr-1 h-3 w-3" />{t('buttons.editAddress', {defaultValue: "Edit Address"})}
+                <Edit2 className="mr-1 h-3 w-3" />{t('buttons.editAddress', {defaultValue: "Edit Address"})}
             </Button>
              <Button variant="ghost" size="sm" className="text-red-600 hover:bg-red-100 dark:hover:bg-red-900/30" onClick={() => {
                 if(onClearAddress) onClearAddress();
@@ -244,7 +246,22 @@ const AddressSelector = ({
                 {currentAddressId ? t('addresses.editTitle', {defaultValue: "Edit Address"}) : t('addresses.addNewTitle', {defaultValue: "Add New Address"})}
             </Label>
             {currentAddressId && // Show cancel edit only if there was an existing address
-                <Button variant="ghost" size="sm" onClick={() => { setIsEditing(false); /* TODO: Reset form to loaded address if changes were made */ }}>
+                <Button variant="ghost" size="sm" onClick={() => { 
+                    setIsEditing(false); 
+                    // TODO: Reset form to loaded address if changes were made 
+                    // To do this properly, you'd need to store the initial loaded address 
+                    // details in a separate state or re-fetch/re-set from currentDisplayAddress.
+                    if (currentDisplayAddress) {
+                      setSelectedCityId(currentDisplayAddress.city_id);
+                      fetchStreetsForCity(currentDisplayAddress.city_id, false);
+                      setSelectedStreetId(currentDisplayAddress.street_id);
+                      setHouseNumber(currentDisplayAddress.house_number || '');
+                      setApartmentNumber(currentDisplayAddress.apartment_number || '');
+                      setZipCode(currentDisplayAddress.zip_code || '');
+                      setNotesEn(currentDisplayAddress.notes_en || '');
+                      setNotesHe(currentDisplayAddress.notes_he || '');
+                    }
+                }}>
                     {t('buttons.cancelEdit', {defaultValue: "Cancel Edit"})}
                 </Button>
             }
@@ -294,7 +311,18 @@ const AddressSelector = ({
         {currentAddressId && currentDisplayAddress && // If there's a linked address, give option to just cancel editing this form
             <Button type="button" variant="outline" onClick={() => {
                 setIsEditing(false); 
-                // TODO: Revert form fields to `currentDisplayAddress` values if changes were made without saving
+                // Revert form fields to `currentDisplayAddress` values if changes were made without saving
+                if (currentDisplayAddress) {
+                    setSelectedCityId(currentDisplayAddress.city_id);
+                    // No need to await here, it's setting state
+                    fetchStreetsForCity(currentDisplayAddress.city_id, false); 
+                    setSelectedStreetId(currentDisplayAddress.street_id);
+                    setHouseNumber(currentDisplayAddress.house_number || '');
+                    setApartmentNumber(currentDisplayAddress.apartment_number || '');
+                    setZipCode(currentDisplayAddress.zip_code || '');
+                    setNotesEn(currentDisplayAddress.notes_en || '');
+                    setNotesHe(currentDisplayAddress.notes_he || '');
+                }
             }}>
             {t('buttons.cancel', {defaultValue: "Cancel"})}
             </Button>

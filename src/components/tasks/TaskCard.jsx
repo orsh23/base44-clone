@@ -1,154 +1,178 @@
-import React from 'react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
+
+import React, { useCallback } from 'react';
+import { Card, CardHeader, CardTitle, CardContent, CardFooter } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Edit, Trash2, Calendar, CheckCircle, Users, Tag as CategoryIcon, MoreVertical, GripVertical, AlertTriangle, ExternalLink, ArrowRightCircle, Eye } from 'lucide-react';
+import { parseISO, isValid } from 'date-fns';
+import { formatSafeDate, formatSafeDateDistance } from '@/components/utils/i18n-utils'; // Import safe formatters
+import TaskStatusDropdown from './TaskStatusDropdown';
+import TaskPriorityBadge from './TaskPriorityBadge';
 import { Checkbox } from "@/components/ui/checkbox";
-import { Calendar as CalendarIcon, Clock, User, AlertTriangle } from 'lucide-react';
-import { format } from 'date-fns';
-import { he, enUS } from 'date-fns/locale';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
-const getLocaleObject = (languageCode) => (languageCode === 'he' ? he : enUS);
 
-export default function TaskCard({
+const TaskCard = React.memo(function TaskCard({
   task,
-  t,
-  isRTL,
-  language,
+  onEdit = () => {},
+  onDelete = () => {},
+  onStatusChange = () => {},
+  t, language, isRTL,
   isSelectionModeActive,
   isSelected,
-  onToggleSelection,
-  onCardClick
+  onToggleSelection = () => {},
+  onCardClick = () => {},
+  onStartSelectionMode = () => {}
 }) {
-  const currentLocale = getLocaleObject(language);
-
-  if (!task) {
-    return (
-      <Card className="border-red-500 dark:border-red-700 bg-red-50 dark:bg-red-900/20">
-        <CardHeader>
-          <CardTitle className="text-red-700 dark:text-red-300 flex items-center">
-            <AlertTriangle className={`h-5 w-5 ${isRTL ? 'ml-2' : 'mr-2'}`} />
-            {t('errors.invalidDataTitle', { defaultValue: 'Invalid Task Data' })}
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <p className="text-sm text-red-600 dark:text-red-400">
-            {t('errors.taskDataMissing', { defaultValue: 'Task data could not be loaded or is incomplete.' })}
-          </p>
-        </CardContent>
-      </Card>
-    );
-  }
-
-  const priorityColors = {
-    low: 'bg-blue-100 text-blue-800 dark:bg-blue-700/30 dark:text-blue-200',
-    medium: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-700/30 dark:text-yellow-200',
-    high: 'bg-orange-100 text-orange-800 dark:bg-orange-700/30 dark:text-orange-200',
-    urgent: 'bg-red-100 text-red-800 dark:bg-red-700/30 dark:text-red-200'
-  };
-
-  const statusColors = {
-    todo: 'bg-gray-100 text-gray-800 dark:bg-gray-700/30 dark:text-gray-200',
-    in_progress: 'bg-blue-100 text-blue-800 dark:bg-blue-700/30 dark:text-blue-200',
-    done: 'bg-green-100 text-green-800 dark:bg-green-700/30 dark:text-green-200',
-    cancelled: 'bg-red-100 text-red-800 dark:bg-red-700/30 dark:text-red-200'
-  };
-
-  const categoryColors = {
-    claim_review: 'bg-purple-100 text-purple-800 dark:bg-purple-700/30 dark:text-purple-200',
-    provider_onboarding: 'bg-indigo-100 text-indigo-800 dark:bg-indigo-700/30 dark:text-indigo-200',
-    contract_negotiation: 'bg-cyan-100 text-cyan-800 dark:bg-cyan-700/30 dark:text-cyan-200',
-    compliance_check: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-700/30 dark:text-emerald-200',
-    data_validation: 'bg-teal-100 text-teal-800 dark:bg-teal-700/30 dark:text-teal-200',
-    system_maintenance: 'bg-slate-100 text-slate-800 dark:bg-slate-700/30 dark:text-slate-200',
-    training: 'bg-amber-100 text-amber-800 dark:bg-amber-700/30 dark:text-amber-200',
-    general: 'bg-gray-100 text-gray-800 dark:bg-gray-700/30 dark:text-gray-200'
-  };
-
-  const handleCardInteraction = (e) => {
-    // Prevent action if clicking on checkbox
-    if (e.target.closest('[role="checkbox"]') || e.target.type === 'checkbox') {
-      return;
-    }
-
-    if (isSelectionModeActive) {
-      onToggleSelection(task.id);
-    } else {
-      onCardClick(task.id);
+  const handleEditClick = (e) => {
+    e.stopPropagation();
+    if (typeof onEdit === 'function') {
+      onEdit();
     }
   };
 
-  const handleCheckboxChange = (checked) => {
-    onToggleSelection(task.id);
+  const handleDeleteClick = (e) => {
+    e.stopPropagation();
+    if (typeof onDelete === 'function') {
+      onDelete();
+    }
   };
+
+  const handleStatusChange = (newStatus) => {
+    if (typeof onStatusChange === 'function') {
+      onStatusChange(newStatus);
+    }
+  };
+
+  const formatSafeDateLocal = useCallback((dateString) => {
+    try {
+      if (!dateString) return null;
+      const date = parseISO(dateString);
+      if (!isValid(date)) return null;
+      return formatSafeDate(date, language);
+    } catch (error) {
+      console.warn('Date formatting error:', error);
+      return null;
+    }
+  }, [language]);
+
+  const formatSafeDateDistanceLocal = useCallback((dateString) => {
+    try {
+      if (!dateString) return null;
+      const date = parseISO(dateString);
+      if (!isValid(date)) return null;
+      return formatSafeDateDistance(date, language);
+    } catch (error) {
+      console.warn('Date formatting error:', error);
+      return null;
+    }
+  }, [language]);
+
+  const cardBaseClass = "flex flex-col h-full transition-all duration-200 ease-in-out relative";
+  const selectedCardClass = isSelectionModeActive && isSelected ? "ring-2 ring-blue-500 border-blue-500 dark:ring-blue-400 dark:border-blue-400 shadow-lg" : "border-gray-200 dark:border-gray-700 hover:shadow-md dark:hover:border-gray-600";
+  const cardClasses = `${cardBaseClass} ${selectedCardClass} ${isSelectionModeActive ? 'cursor-pointer' : ''}`;
 
   return (
-    <Card 
-      className={`transition-all duration-200 hover:shadow-md ${
-        isSelectionModeActive 
-          ? `cursor-pointer ${isSelected ? 'ring-2 ring-blue-500 bg-blue-50 dark:bg-blue-900/20' : 'hover:bg-gray-50 dark:hover:bg-gray-800'}` 
-          : 'cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800'
-      }`}
-      onClick={handleCardInteraction}
-    >
-      <CardHeader className="pb-3">
-        <div className="flex items-start justify-between">
-          <div className="flex items-start gap-3 flex-1">
-            {isSelectionModeActive && (
-              <Checkbox
-                checked={isSelected}
-                onCheckedChange={handleCheckboxChange}
-                aria-label={t('bulkActions.selectRow', { defaultValue: 'Select task' })}
-                className="mt-1"
-                onClick={(e) => e.stopPropagation()}
-              />
-            )}
-            <div className="flex-1 min-w-0">
-              <CardTitle className="text-lg font-semibold text-gray-900 dark:text-gray-100 line-clamp-2">
-                {task.title}
-              </CardTitle>
-              {task.description && (
-                <p className="text-sm text-gray-600 dark:text-gray-400 mt-1 line-clamp-2">
-                  {task.description}
-                </p>
-              )}
-            </div>
-          </div>
+    <Card className={cardClasses} onClick={isSelectionModeActive ? onToggleSelection : onCardClick}>
+      {isSelectionModeActive && (
+        <Checkbox
+          checked={isSelected}
+          onCheckedChange={onToggleSelection}
+          className="absolute top-2 left-2 z-10 h-5 w-5 bg-white dark:bg-gray-800 border-gray-400 dark:border-gray-500"
+          aria-label={t('bulkActions.selectRow', {defaultValue: "Select task"})}
+        />
+      )}
+      <CardHeader className={`pb-3 ${isSelectionModeActive ? 'pl-10' : ''}`}>
+        <div className="flex justify-between items-start">
+          <CardTitle
+            className={`text-lg font-semibold leading-tight line-clamp-2 hover:text-blue-600 dark:hover:text-blue-400 ${isSelectionModeActive ? '' : 'cursor-pointer'}`}
+            onClick={(e) => { if (!isSelectionModeActive) { e.stopPropagation(); onCardClick(); }}}
+            title={task.title}
+          >
+            {task.title}
+          </CardTitle>
+          {!isSelectionModeActive && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="icon" className="h-8 w-8 text-gray-500 dark:text-gray-400">
+                  <MoreVertical className="h-4 w-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align={isRTL ? "start" : "end"}>
+                <DropdownMenuItem onClick={handleEditClick}>
+                  <Edit className="mr-2 h-4 w-4" /> {t('common.edit', {defaultValue: 'Edit'})}
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => onStartSelectionMode('edit', task)}>
+                  <Eye className="mr-2 h-4 w-4" /> {t('common.viewDetails', {defaultValue: 'View Details'})}
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={() => onStartSelectionMode('delete', task)}>
+                  <Trash2 className="mr-2 h-4 w-4 text-red-500" />
+                  <span className="text-red-500">{t('common.delete', {defaultValue: 'Delete'})}</span>
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
         </div>
-        
-        <div className="flex flex-wrap gap-2 mt-3">
-          <Badge className={statusColors[task.status] || statusColors.todo}>
-            {t(`status.${task.status}`, { defaultValue: task.status })}
-          </Badge>
-          <Badge className={priorityColors[task.priority] || priorityColors.medium}>
-            {t(`priority.${task.priority}`, { defaultValue: task.priority })}
-          </Badge>
-          <Badge className={categoryColors[task.category] || categoryColors.general}>
-            {t(`category.${task.category}`, { defaultValue: task.category })}
-          </Badge>
+        <div className="flex items-center space-x-2 rtl:space-x-reverse mt-1">
+          <TaskPriorityBadge priority={task.priority} t={t} language={language} isRTL={isRTL} />
+          {task.category && (
+            <Badge variant="outline_gray" className="flex items-center gap-1 text-xs">
+              <CategoryIcon className="h-3 w-3" /> {t(`category.${task.category}`, {defaultValue: task.category})}
+            </Badge>
+          )}
         </div>
       </CardHeader>
+      <CardContent className={`flex-grow pb-3 space-y-2 ${isSelectionModeActive ? 'pl-10' : ''}`}>
+        {task.description && (
+          <p className="text-sm text-gray-600 dark:text-gray-400 line-clamp-3" title={task.description}>
+            {task.description}
+          </p>
+        )}
+        {!task.description && (
+           <p className="text-sm text-gray-400 dark:text-gray-500 italic">
+            {t('common.noDescription', {defaultValue: 'No description provided.'})}
+          </p>
+        )}
 
-      <CardContent className="pt-0">
-        <div className="flex flex-wrap items-center gap-4 text-sm text-gray-600 dark:text-gray-400">
-          {task.due_date && (
-            <div className="flex items-center gap-1">
-              <CalendarIcon className="h-4 w-4" />
-              <span>{format(new Date(task.due_date), 'MMM d, yyyy', { locale: currentLocale })}</span>
+        {task.due_date && (
+          <div className="flex items-center text-xs text-gray-500 dark:text-gray-400">
+            <Calendar className="h-3.5 w-3.5 mr-1.5 rtl:ml-1.5" />
+            <span>
+              {t('tasks.fields.dueDate', {defaultValue: 'Due'})}:
+              {formatSafeDateLocal(task.due_date) || t('common.invalidDate', {defaultValue: 'Invalid Date'})}
+            </span>
+            {new Date(task.due_date) < new Date() && task.status !== 'done' && (
+               <AlertTriangle className="h-3.5 w-3.5 ml-1.5 rtl:mr-1.5 text-red-500" title={t('common.overdue', {defaultValue: 'Overdue'})} />
+            )}
+          </div>
+        )}
+        {task.assigned_to && (
+            <div className="flex items-center text-xs text-gray-500 dark:text-gray-400">
+                <Users className="h-3.5 w-3.5 mr-1.5 rtl:ml-1.5" />
+                <span>{t('tasks.fields.assignedTo', {defaultValue: 'Assigned'})}: {task.assigned_to_name || task.assigned_to}</span>
             </div>
-          )}
-          {task.assigned_to && (
-            <div className="flex items-center gap-1">
-              <User className="h-4 w-4" />
-              <span className="truncate">{task.assigned_to}</span>
-            </div>
-          )}
-          {task.estimated_hours && (
-            <div className="flex items-center gap-1">
-              <Clock className="h-4 w-4" />
-              <span>{task.estimated_hours}h est.</span>
-            </div>
-          )}
-        </div>
+        )}
       </CardContent>
+      <CardFooter className={`flex justify-between items-center pt-3 border-t dark:border-gray-700 ${isSelectionModeActive ? 'pl-10' : ''}`}>
+        <TaskStatusDropdown
+            currentStatus={task.status}
+            onStatusChange={handleStatusChange}
+            t={t} language={language} isRTL={isRTL}
+            triggerClassName="text-xs"
+        />
+        <div className="text-xs text-gray-400 dark:text-gray-500" title={formatSafeDateLocal(task.updated_date) || ''}>
+          {formatSafeDateDistanceLocal(task.updated_date) || t('common.invalidDate', {defaultValue: 'Invalid Date'})}
+        </div>
+      </CardFooter>
     </Card>
   );
-}
+});
+
+export default TaskCard;

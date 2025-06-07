@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useCallback } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogClose } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
@@ -6,6 +7,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Calendar } from '@/components/ui/calendar';
+import { Badge } from '@/components/ui/badge'; // Fixed import
 import { Calendar as CalendarIcon, Tag, User, Users, Layers, AlertTriangle } from 'lucide-react';
 import { format, parseISO, isValid } from 'date-fns';
 import { useLanguageHook } from '@/components/useLanguageHook';

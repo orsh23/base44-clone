@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useMemo } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogClose } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
@@ -5,12 +6,13 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from '@/components/ui/textarea';
-import FormField from '@/components/forms/FormField';
+// Corrected FormField import path
+import FormField from '@/components/shared/forms/FormField';
 import BilingualInput from '@/components/forms/BilingualInput';
-import AddressSelector from '@/components/address-management/AddressSelector'; // Import AddressSelector
-import { PROVIDER_TYPES, LEGAL_ENTITY_TYPES, STATUS_OPTIONS } from '@/components/utils/options'; // Assuming these exist
+import AddressSelector from '@/components/address-management/AddressSelector';
+import { PROVIDER_TYPES, LEGAL_ENTITY_TYPES, STATUS_OPTIONS } from '@/components/utils/options';
 import { validateProviderIdentifier } from '@/components/utils/validation-rules';
-import { useLanguageHook } from '@/components/useLanguageHook'; // For passing `t` to AddressSelector
+import { useLanguageHook } from '@/components/useLanguageHook';
 
 const ProviderDialog = ({ isOpen, onClose, onSubmit, provider, allCities = [] }) => {
   const { t } = useLanguageHook();

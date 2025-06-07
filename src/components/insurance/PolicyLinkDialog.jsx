@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useMemo } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
@@ -6,7 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Input } from '@/components/ui/input'; // For group_number
 import { Checkbox } from '@/components/ui/checkbox'; // For active_flag
 import DatePicker from '@/components/ui/date-picker';
-import FormField from '@/components/forms/FormField';
+import FormField from '@/components/shared/forms/FormField'; // Corrected path
 import { useLanguageHook } from '@/components/useLanguageHook';
 import { useToast } from '@/components/ui/use-toast';
 import { InsuredPerson } from '@/api/entities';

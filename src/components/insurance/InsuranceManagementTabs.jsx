@@ -1,13 +1,14 @@
 import React, { useState } from 'react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useLanguageHook } from '@/components/useLanguageHook';
-import InsuredPersonsTab from './InsuredPersonsTab'; // Removed .jsx
-import PoliciesTab from './PoliciesTab'; // Removed .jsx
-import PolicyLinkageTab from './PolicyLinkageTab'; // Removed .jsx
-import PolicyConfigTab from './PolicyConfigTab'; 
-import ContractsTab from './ContractsTab'; 
-import TariffsTab from './TariffsTab'; 
-import InsuranceCodesTab from './InsuranceCodesTab'; 
+import InsuredPersonsTab from './InsuredPersonsTab';
+import PoliciesTab from './PoliciesTab';
+import PolicyLinkageTab from './PolicyLinkageTab';
+import PolicyConfigTab from './PolicyConfigTab';
+// Updated imports to point to canonical locations
+import ContractsTab from '@/components/contract-management/contracts-tab';
+import TariffsTab from '@/components/finance/TariffsTab';
+import InsuranceCodesTab from './InsuranceCodesTab';
 
 export default function InsuranceManagementTabs() {
   const { t } = useLanguageHook();

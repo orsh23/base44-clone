@@ -1,682 +1,395 @@
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Doctor } from '@/api/entities';
+import { City } from '@/api/entities';
 import { useLanguageHook } from '@/components/useLanguageHook';
 import { useToast } from "@/components/ui/use-toast";
 import { Button } from '@/components/ui/button';
-import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from '@/components/ui/badge';
-import { Plus, Edit, Trash2, UploadCloud, Eye, FilterX, RefreshCw, UserCircle, AlertTriangle, MoreVertical, XCircle, CheckCircle2, DownloadCloud } from 'lucide-react';
+import { Edit, Trash2, UploadCloud, RefreshCw, DownloadCloud, UserPlus, Users, SearchX } from 'lucide-react';
 import DoctorDialog from './DoctorDialog';
 import DoctorCard from './DoctorCard';
-import DoctorDetailsDrawer from './DoctorDetailsDrawer';
 import DoctorFilterBar from './DoctorFilterBar';
-import ConfirmationDialog from '@/components/ui/confirmation-dialog';
 import LoadingSpinner from '@/components/ui/loading-spinner';
 import EmptyState from '@/components/ui/empty-state';
+import ErrorDisplay from '@/components/common/ErrorDisplay';
+import StatusBadge from '@/components/common/StatusBadge';
 import ViewSwitcher from '@/components/common/ViewSwitcher';
 import GlobalActionButton from '@/components/common/GlobalActionButton';
 import ImportDialog from '@/components/common/ImportDialog';
-import DataTable from '@/components/shared/DataTable';
-import { formatDistanceToNow, parseISO, isValid } from 'date-fns';
-import { enUS, he } from 'date-fns/locale';
+import DataTable from '@/components/ui/data-table'; 
 import { loadFromStorage, saveToStorage } from '@/components/utils/storage';
+import { getLocalizedValue } from '@/lib/utils';
+import { useEntityModule } from '@/components/hooks/useEntityModule';
 
-const getLocaleObject = (languageCode) => (languageCode === 'he' ? he : enUS);
-
-// Simplified cache for this refactor, can be enhanced later
-const doctorsApiCache = {
-  doctors: { data: null, timestamp: null, loading: false, error: null },
-  expirationTime: 5 * 60 * 1000, // 5 minutes
-};
-
-const isCacheValid = (cacheKey) => {
-  const entry = doctorsApiCache[cacheKey];
-  return entry?.data && entry.timestamp && (Date.now() - entry.timestamp) < doctorsApiCache.expirationTime;
-};
-const updateCache = (cacheKey, data, error = null) => {
-  doctorsApiCache[cacheKey] = { data, timestamp: Date.now(), loading: false, error };
-};
-const setCacheLoading = (cacheKey, isLoading) => {
-  if (doctorsApiCache[cacheKey]) doctorsApiCache[cacheKey].loading = isLoading;
-};
-
-export default function DoctorsTab() {
+export default function DoctorsTab({ globalActionsConfig: externalActionsConfig, currentView: passedView }) {
   const { t, language, isRTL } = useLanguageHook();
   const { toast } = useToast();
-  const currentLocale = getLocaleObject(language);
+  const [cities, setCities] = useState([]); // For filter options
 
-  const [doctors, setDoctors] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
-  
-  const [filters, setFilters] = useState({
-    searchTerm: '', status: 'all', specialty: 'all', city: 'all', page: 1, pageSize: 10,
-  });
-  const [sortConfig, setSortConfig] = useState({ key: 'name', direction: 'ascending' });
-
-  const [isDoctorDialogOpen, setIsDoctorDialogOpen] = useState(false);
-  const [currentDoctorForDialog, setCurrentDoctorForDialog] = useState(null);
-  const [isDetailsDrawerOpen, setIsDetailsDrawerOpen] = useState(false);
-  const [selectedDoctorIdForDrawer, setSelectedDoctorIdForDrawer] = useState(null);
-  const [isImportDialogOpen, setIsImportDialogOpen] = useState(false);
-  const [deleteDialogState, setDeleteDialogState] = useState({ isOpen: false, itemIds: [], itemName: '', message: '' });
-
-  const [currentView, setCurrentView] = useState(() => loadFromStorage('doctors_view_preference', 'card'));
-  
-  const [isSelectionModeActive, setIsSelectionModeActive] = useState(false);
-  const [selectionMode, setSelectionMode] = useState(null); // 'edit' or 'delete'
-  const [selectedItemIds, setSelectedItemIds] = useState(new Set());
-
-  const getLocalizedDoctorName = useCallback((doc) => {
-    if (!doc) return t('common.unknownDoctor', { defaultValue: 'Unknown Doctor' });
-    const lang = language || t('common.langCode', {defaultValue: 'en'});
-    const fName = lang === 'he' ? doc.first_name_he : doc.first_name_en;
-    const lName = lang === 'he' ? doc.last_name_he : doc.last_name_en;
-    const altFName = lang === 'he' ? doc.first_name_en : doc.first_name_he;
-    const altLName = lang === 'he' ? doc.last_name_en : doc.last_name_he;
-    return `${fName || altFName || ''} ${lName || altLName || ''}`.trim() || t('common.unknownDoctor');
-  }, [t, language]);
-
-  const fetchData = useCallback(async (forceRefresh = false) => {
-    const cacheKey = 'doctors';
-    if (!forceRefresh && isCacheValid(cacheKey) && doctorsApiCache[cacheKey].data) {
-      setDoctors(doctorsApiCache[cacheKey].data);
-      setError(doctorsApiCache[cacheKey].error);
-      setLoading(false);
-      return;
-    }
-    setLoading(true); 
-    setCacheLoading(cacheKey, true);
-    try {
-      const fetchedDoctors = await Doctor.list('-updated_date'); // Default sort
-      const validData = Array.isArray(fetchedDoctors) ? fetchedDoctors : [];
-      setDoctors(validData);
-      updateCache(cacheKey, validData);
-    } catch (err) {
-      console.error("Error fetching doctors:", err);
-      const errorMessage = err.message || t('errors.fetchFailedGeneral', { item: t('pageTitles.doctors')});
-      setError(errorMessage);
-      updateCache(cacheKey, doctorsApiCache[cacheKey].data || [], errorMessage);
-    } finally {
-      setCacheLoading(cacheKey, false);
-      setLoading(false);
-    }
-  }, [t]);
-
-  useEffect(() => { fetchData(); }, [fetchData]);
-
-  const handleRefresh = () => {
-    fetchData(true);
-    toast({
-      title: t('common.refreshingData', {defaultValue: "Refreshing Data"}),
-      description: t('messages.fetchingLatest', { item: t('pageTitles.doctors') }),
-    });
-  };
-
-  const filteredAndSortedDoctors = useMemo(() => {
-    let items = Array.isArray(doctors) ? doctors.filter(Boolean) : [];
-    const { searchTerm, status, specialty, city } = filters;
-
-    if (searchTerm) {
-      const termLower = searchTerm.toLowerCase();
-      items = items.filter(doc =>
-        getLocalizedDoctorName(doc).toLowerCase().includes(termLower) ||
-        (doc.license_number && doc.license_number.includes(termLower)) ||
-        (doc.email && doc.email.toLowerCase().includes(termLower)) ||
-        (doc.phone && doc.phone.includes(termLower)) ||
-        (Array.isArray(doc.specialties) && doc.specialties.some(s => t(`doctorSpecialties.${s.replace(/\s+/g, '_')}`, {defaultValue: s}).toLowerCase().includes(termLower)))
-      );
-    }
-    if (status !== 'all') items = items.filter(doc => doc.status === status);
-    if (specialty !== 'all') items = items.filter(doc => Array.isArray(doc.specialties) && doc.specialties.includes(specialty));
-    if (city !== 'all' && city !== '') items = items.filter(doc => doc.city === city);
-
-    if (sortConfig.key) {
-      items.sort((a, b) => {
-        let valA, valB;
-        if (sortConfig.key === 'name') {
-          valA = getLocalizedDoctorName(a).toLowerCase();
-          valB = getLocalizedDoctorName(b).toLowerCase();
-        } else if (sortConfig.key === 'updated_date') {
-            valA = a.updated_date && isValid(parseISO(a.updated_date)) ? parseISO(a.updated_date).getTime() : (sortConfig.direction === 'ascending' ? Infinity : -Infinity);
-            valB = b.updated_date && isValid(parseISO(b.updated_date)) ? parseISO(b.updated_date).getTime() : (sortConfig.direction === 'ascending' ? Infinity : -Infinity);
-        } else {
-          const keys = sortConfig.key.split('.');
-          valA = keys.reduce((obj, key) => obj?.[key], a);
-          valB = keys.reduce((obj, key) => obj?.[key], b);
-          if (typeof valA === 'string') valA = valA.toLowerCase();
-          if (typeof valB === 'string') valB = valB.toLowerCase();
-        }
-        if (valA === undefined || valA === null) valA = sortConfig.direction === 'ascending' ? Infinity : -Infinity;
-        if (valB === undefined || valB === null) valB = sortConfig.direction === 'ascending' ? Infinity : -Infinity;
-        if (valA < valB) return sortConfig.direction === 'ascending' ? -1 : 1;
-        if (valA > valB) return sortConfig.direction === 'ascending' ? 1 : -1;
-        return 0;
-      });
-    }
-    return items;
-  }, [doctors, filters, sortConfig, getLocalizedDoctorName, t]);
-
-  const paginatedDoctors = useMemo(() => {
-    const startIndex = (filters.page - 1) * filters.pageSize;
-    return filteredAndSortedDoctors.slice(startIndex, startIndex + filters.pageSize);
-  }, [filteredAndSortedDoctors, filters.page, filters.pageSize]);
-
-  const totalItems = filteredAndSortedDoctors.length;
-  const totalPages = Math.ceil(totalItems / filters.pageSize);
-
-  const handlePageChange = (newPage) => setFilters(prev => ({ ...prev, page: newPage }));
-  const handlePageSizeChange = (newPageSize) => setFilters(prev => ({ ...prev, pageSize: newPageSize, page: 1 }));
-  
-  const handleDataTableSortChange = useCallback((newSortState) => {
-    if (newSortState && newSortState.length > 0) {
-      const { id, desc } = newSortState[0];
-      setSortConfig({ key: id, direction: desc ? 'descending' : 'ascending' });
-    } else {
-      setSortConfig({ key: 'name', direction: 'ascending' }); // Default sort for table
-    }
-  }, []);
-  
-  const openDoctorDialogForEdit = (doctorToEdit) => {
-    setCurrentDoctorForDialog(doctorToEdit);
-    setIsDoctorDialogOpen(true);
-  };
-  
-  const openDoctorDialogForAdd = () => {
-    setCurrentDoctorForDialog(null);
-    setIsDoctorDialogOpen(true);
-  };
-
-  const openDetailsDrawer = (doctorId) => {
-    if (isSelectionModeActive) return; 
-    const doctorToView = doctors.find(d => d.id === doctorId);
-    if (doctorToView) {
-        setSelectedDoctorIdForDrawer(doctorId);
-        setIsDetailsDrawerOpen(true);
-    } else {
-        toast({ title: t('errors.itemNotFoundTitle', {defaultValue: 'Item Not Found'}), description: t('errors.itemNotFoundMessage', {item: t('pageTitles.doctorsSingular')}), variant: "warning"});
-    }
-  };
-
-  const handleDialogClose = (refreshNeeded, operationType = null, doctorNameParam = '') => {
-    setIsDoctorDialogOpen(false);
-    setCurrentDoctorForDialog(null);
-    if (refreshNeeded) {
-      fetchData(true);
-      const nameToDisplay = doctorNameParam || t('common.item', {defaultValue: "item"});
-      if (operationType === 'create') {
-        toast({ title: t('messages.success', {defaultValue: "Success!"}), description: t('doctors.createSuccess', { name: nameToDisplay }) });
-      } else if (operationType === 'update') {
-        toast({ title: t('messages.success', {defaultValue: "Success!"}), description: t('doctors.updateSuccess', { name: nameToDisplay }) });
-      }
-    }
-  };
-
-  const handleStartSelectionMode = (mode) => { 
-    setSelectionMode(mode);
-    setIsSelectionModeActive(true);
-    setSelectedItemIds(new Set()); 
-    toast({
-        title: t('bulkActions.selectionModeActiveTitle', { mode: t(`common.${mode}`, {defaultValue: mode}) }),
-        description: t('bulkActions.selectionModeActiveDesc', { mode: t(`common.${mode}`, {defaultValue: mode}), entity: t('pageTitles.doctorsPlural', {defaultValue: "doctors"})}),
-        variant: 'info'
-    });
-  };
-
-  const handleCancelSelectionMode = () => {
-    setIsSelectionModeActive(false);
-    setSelectionMode(null);
-    setSelectedItemIds(new Set());
-  };
-  
-  const handleToggleSelection = useCallback((itemId) => {
-    if (itemId === undefined || itemId === null) return;
-    setSelectedItemIds(prevIds => {
-      const newSelectedIds = new Set(prevIds);
-      if (newSelectedIds.has(itemId)) newSelectedIds.delete(itemId);
-      else newSelectedIds.add(itemId);
-      return newSelectedIds;
-    });
-  }, []);
-  
-  const handleSelectAllVisible = useCallback(() => {
-    const itemsToConsider = currentView === 'table' ? filteredAndSortedDoctors : paginatedDoctors;
-    const allVisibleValidItemIds = itemsToConsider.filter(item => item && item.id != null).map(item => item.id);
-    
-    const allCurrentlySelectedOnPage = allVisibleValidItemIds.length > 0 && allVisibleValidItemIds.every(id => selectedItemIds.has(id));
-
-    if (allCurrentlySelectedOnPage) {
-      setSelectedItemIds(prevIds => {
-        const newIds = new Set(prevIds);
-        allVisibleValidItemIds.forEach(id => newIds.delete(id));
-        return newIds;
-      });
-    } else {
-      setSelectedItemIds(prevIds => new Set([...prevIds, ...allVisibleValidItemIds]));
-    }
-  }, [paginatedDoctors, filteredAndSortedDoctors, currentView, selectedItemIds]);
-
-  const handleConfirmSelectionAction = () => {
-    const idsArray = Array.from(selectedItemIds);
-    if (idsArray.length === 0) {
-      toast({ title: t('bulkActions.noItemsSelectedTitle', {defaultValue: "No Items Selected"}), description: t('bulkActions.selectItemsPrompt', { mode: selectionMode, defaultValue: `Please select items to ${selectionMode}.` }), variant: "warning" });
-      return;
-    }
-
-    if (selectionMode === 'edit') {
-      if (idsArray.length === 1) {
-        const doctorToEdit = doctors.find(d => d.id === idsArray[0]);
-        if (doctorToEdit) {
-          openDoctorDialogForEdit(doctorToEdit);
-        } else {
-          toast({ title: t('errors.itemNotFoundTitle'), description: t('errors.itemNotFoundToEditDesc'), variant: "warning" });
-        }
-      } else {
-        toast({ title: t('bulkActions.selectOneToEditTitle', {defaultValue: "Select One Item"}), description: t('bulkActions.selectOneToEditDesc', {entity: t('pageTitles.doctorsSingular')}), variant: "info" });
-        return; 
-      }
-    } else if (selectionMode === 'delete') {
-        const firstItemName = getLocalizedDoctorName(doctors.find(d => d.id === idsArray[0]));
-        const itemName = idsArray.length === 1 ? firstItemName : t('pageTitles.doctorsMultipleItems', { count: idsArray.length, defaultValue: `${idsArray.length} doctors` });
-        setDeleteDialogState({
-            isOpen: true,
-            itemIds: idsArray,
-            itemName: itemName,
-            message: t('doctors.bulkDeleteConfirmMessage', {count: idsArray.length, itemName: itemName, defaultValue: `Are you sure you want to delete ${itemName}? This action cannot be undone.`})
-        });
-    }
-    
-    if (!(selectionMode === 'edit' && idsArray.length > 1)) { 
-        handleCancelSelectionMode();
-    }
-  };
-  
-  const handleConfirmDelete = async () => {
-    if (!deleteDialogState.itemIds || deleteDialogState.itemIds.length === 0) return;
-    setLoading(true); 
-    let successCount = 0;
-    let errorCount = 0;
-
-    for (const id of deleteDialogState.itemIds) {
+  // Fetch cities for filter dropdown with aggressive rate limiting protection
+  useEffect(() => {
+    const fetchCities = async () => {
       try {
-        await Doctor.delete(id);
-        successCount++;
-      } catch (err) {
-        console.error(`Error deleting doctor ${id}:`, err);
-        const doctorName = getLocalizedDoctorName(doctors.find(d => d.id === id) || {id});
-        toast({
-            title: t('errors.deleteFailedTitle', {defaultValue: "Deletion Failed"}),
-            description: t('doctors.deleteError', { name: doctorName, error: err.message }),
-            variant: "destructive",
-        });
-        errorCount++;
+        // Add significant delay to prevent rate limiting
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        const cityData = await City.list(undefined, 100, undefined, ['name_en', 'name_he']); // Reduced limit
+        if (Array.isArray(cityData)) {
+          const cityOptions = cityData.map(c => ({
+            value: language === 'he' ? (c.name_he || c.name_en) : (c.name_en || c.name_he),
+            label: language === 'he' ? (c.name_he || c.name_en) : (c.name_en || c.name_he)
+          })).filter(c => c.value).sort((a,b) => a.label.localeCompare(b.label));
+          setCities([...new Set(cityOptions.map(c => c.label))]);
+        }
+      } catch (error) {
+        console.error("Error fetching cities for doctor filters:", error);
+        // Silently fail for cities to not disrupt main functionality
+      }
+    };
+    
+    // Delay the fetch significantly to avoid conflicts with main data loading  
+    const timeoutId = setTimeout(fetchCities, 4000); // Wait 4 seconds
+    return () => clearTimeout(timeoutId);
+  }, [language]);
+
+
+  const entityConfig = useMemo(() => ({
+    entitySDK: Doctor,
+    entityName: t('doctors.entityNameSingular', { defaultValue: 'Doctor' }),
+    entityNamePlural: t('doctors.titleMultiple', { defaultValue: 'Doctors' }),
+    DialogComponent: DoctorDialog,
+    initialSort: [{ id: 'last_name_en', desc: false }],
+    initialFilters: {
+      searchTerm: '',
+      specialty: 'all',
+      status: 'all',
+      city: 'all', // Legacy city field, not address_id. Filtering by address_id is complex client-side
+    },
+    searchFields: ['first_name_en', 'last_name_en', 'first_name_he', 'last_name_he', 'license_number', 'email', 'specialties', 'sub_specialties', 'city'], // Include city for legacy search
+    filterFunction: (item, filters) => {
+        const term = filters.searchTerm?.toLowerCase();
+        if (term) {
+            const nameEn = `${item.first_name_en || ''} ${item.last_name_en || ''}`.toLowerCase();
+            const nameHe = `${item.first_name_he || ''} ${item.last_name_he || ''}`.toLowerCase();
+            if (!(nameEn.includes(term) || nameHe.includes(term) ||
+                  item.license_number?.toLowerCase().includes(term) ||
+                  item.email?.toLowerCase().includes(term) ||
+                  (Array.isArray(item.specialties) && item.specialties.some(s => s?.toLowerCase().includes(term))) ||
+                  (Array.isArray(item.sub_specialties) && item.sub_specialties.some(s => s?.toLowerCase().includes(term))) ||
+                   item.city?.toLowerCase().includes(term) // Legacy city check
+                 )) return false;
+        }
+        if (filters.specialty !== 'all' && (!Array.isArray(item.specialties) || !item.specialties.includes(filters.specialty))) {
+             if (!Array.isArray(item.sub_specialties) || !item.sub_specialties.includes(filters.specialty)) return false;
+        }
+        if (filters.status !== 'all' && item.status !== filters.status) return false;
+        // Filtering by item.address_id (structured address) would require fetching address details,
+        // which is complex for client-side filtering. For now, we filter by legacy `city`.
+        if (filters.city !== 'all' && item.city?.toLowerCase() !== filters.city?.toLowerCase()) return false;
+        
+        return true;
+    },
+    storageKey: 'doctors', // Use a specific key for this entity's storage
+  }), [t]);
+
+  const {
+    items: doctors,
+    loading, error, filters, sortConfig, pagination, selectedItems, setSelectedItems,
+    isDialogOpen, currentItem,
+    handleRefresh: refreshDoctors,
+    handleFilterChange, handleSortChange, handlePageChange, handlePageSizeChange,
+    handleAddNew, handleEdit, handleBulkDelete,
+    isSelectionModeActive, setIsSelectionModeActive,
+    handleToggleSelection, handleSelectAll, handleSelfSubmittingDialogClose,
+    filteredAndSortedItems, // All items after filtering and sorting
+  } = useEntityModule(entityConfig);
+
+  const [currentView, setCurrentView] = useState(() => {
+    try {
+      return loadFromStorage(entityConfig.storageKey + '_viewPreference', 'card');
+    } catch (e) {
+      return 'card';
+    }
+  });
+  
+  useEffect(() => {
+    if (passedView && passedView !== currentView) {
+      setCurrentView(passedView);
+      try {
+        saveToStorage(entityConfig.storageKey + '_viewPreference', passedView);
+      } catch (e) {
+        console.warn('Failed to save view preference:', e);
       }
     }
-    setLoading(false);
-    if (successCount > 0) {
-      toast({
-        title: t('messages.success', {defaultValue: "Success!"}),
-        description: t('doctors.bulkDeleteSuccess', { count: successCount }),
-      });
-      fetchData(true); 
-    }
-    setDeleteDialogState({ isOpen: false, itemIds: [], itemName: '', message: '' });
-  };
+  }, [passedView, currentView, entityConfig.storageKey]);
 
-  const handleImportSubmit = async (records) => {
-    setIsImportDialogOpen(false);
-    if (!records || records.length === 0) {
-      toast({ title: t('import.noRecordsTitle'), description: t('import.noRecordsDesc'), variant: "warning" });
-      return;
+  const handleEditWithSelectionCheck = useCallback(() => {
+    if (selectedItems.length === 1) {
+      const itemToEdit = filteredAndSortedItems.find(it => it.id === selectedItems[0]);
+      if (itemToEdit) handleEdit(itemToEdit);
+      else toast({ title: t('errors.itemNotFoundTitle', {defaultValue: "Item Not Found"}), description: t('errors.itemNotFoundToEditDesc', {defaultValue: "The item selected for editing could not be found."}), variant: "warning" });
+    } else if (selectedItems.length === 0) {
+      setIsSelectionModeActive(true);
+      toast({ title: t('bulkActions.selectionModeActiveTitle', {mode: t('common.edit', {defaultValue: 'Edit'})}), description: t('bulkActions.selectItemsPromptShort', {mode: t('common.edit', {defaultValue: 'Edit'})}), variant: "info" });
+    } else {
+      toast({ title: t('bulkActions.selectOneToEditTitle', {defaultValue: "Select One Item"}), description: t('bulkActions.selectOneToEditDesc', { entity: entityConfig.entityName, defaultValue: `Please select exactly one ${entityConfig.entityName} to edit.` }), variant: 'info' });
     }
-     const doctorsToCreate = records.map(rec => ({
-        first_name_en: rec['First Name EN'] || rec['first_name_en'],
-        last_name_en: rec['Last Name EN'] || rec['last_name_en'],
-        first_name_he: rec['First Name HE'] || rec['first_name_he'],
-        last_name_he: rec['Last Name HE'] || rec['last_name_he'],
-        license_number: rec['License Number'] || rec['license_number'],
-        specialties: (rec['Specialties'] || rec['specialties'])?.split(',').map(s => s.trim()).filter(Boolean) || [],
-        phone: rec['Phone'] || rec['phone'],
-        email: rec['Email'] || rec['email'],
-        city: rec['City'] || rec['city'],
-        status: rec['Status']?.toLowerCase() || rec['status']?.toLowerCase() || 'active',
-    })).filter(d => (d.first_name_en || d.first_name_he) && (d.last_name_en || d.last_name_he) && d.license_number && d.specialties?.length > 0);
+  }, [selectedItems, handleEdit, setIsSelectionModeActive, t, toast, filteredAndSortedItems, entityConfig.entityName]);
 
-    if(doctorsToCreate.length === 0) {
-        toast({title: t('import.noValidRecordsTitle'), description: t('import.noValidRecordsDesc', {entity: t('pageTitles.doctors')}), variant: 'warning'});
-        return;
+  const handleDeleteWithSelectionCheck = useCallback(() => {
+    if (selectedItems.length > 0) {
+      if (window.confirm(t('common.confirmDeleteMultiple', { count: selectedItems.length, item: entityConfig.entityNamePlural, defaultValue: `Are you sure you want to delete ${selectedItems.length} ${entityConfig.entityNamePlural}? This action cannot be undone.` }))) {
+        handleBulkDelete(selectedItems);
+      }
+    } else {
+      setIsSelectionModeActive(true);
+      toast({ title: t('bulkActions.selectionModeActiveTitle', {mode: t('common.delete', {defaultValue: 'Delete'})}), description: t('bulkActions.selectItemsPromptShort', {mode: t('common.delete', {defaultValue: 'Delete'})}), variant: "info" });
     }
-    setLoading(true);
-    let successImpCount = 0; let errorImpCount = 0;
-    for (const doctorData of doctorsToCreate) {
-        try { await Doctor.create(doctorData); successImpCount++; }
-        catch (err) { console.error("Error creating doctor from import:", err, doctorData); errorImpCount++; }
+  }, [selectedItems, handleBulkDelete, setIsSelectionModeActive, t, toast, entityConfig.entityNamePlural]);
+  
+  const handleCancelSelectionMode = useCallback(() => {
+    setIsSelectionModeActive(false);
+    setSelectedItems([]); // from useEntityModule
+  }, [setIsSelectionModeActive, setSelectedItems]);
+
+  const handleViewChange = useCallback((view) => {
+    setCurrentView(view);
+    try {
+      saveToStorage(entityConfig.storageKey + '_viewPreference', view);
+    } catch (e) {
+      console.warn('Failed to save view preference:', e);
     }
-    setLoading(false);
-    toast({
-        title: t('import.completedTitle'),
-        description: t('import.completedDesc', {successCount: successImpCount, errorCount: errorImpCount, entity: t('pageTitles.doctors')}),
-    });
-    if (successImpCount > 0) fetchData(true);
-  };
+    handleCancelSelectionMode();
+  }, [entityConfig.storageKey, handleCancelSelectionMode]);
 
-  const doctorGlobalActionsConfig = useMemo(() => [
-    { labelKey: 'doctors.addNewDoctor', defaultLabel: 'Add New Doctor', icon: Plus, action: openDoctorDialogForAdd, type: 'add' },
-    { labelKey: 'common.edit', defaultLabel: 'Edit', icon: Edit, type: 'edit' }, 
-    { labelKey: 'common.delete', defaultLabel: 'Delete', icon: Trash2, type: 'delete' },
-    { isSeparator: true },
-    { labelKey: 'buttons.import', defaultLabel: 'Import', icon: UploadCloud, action: () => setIsImportDialogOpen(true), type: 'import' },
-    { labelKey: 'buttons.export', defaultLabel: 'Export', icon: DownloadCloud, action: () => toast({ title: t('common.featureComingSoonTitle'), description: t('common.featureComingSoonDesc', { featureName: 'Export' }) }), disabled: true, type: 'export' },
-  ], [t, openDoctorDialogForAdd, setIsImportDialogOpen, toast]);
 
-  const doctorColumnsForTable = useMemo(() => [
+  const memoizedGlobalActionsConfig = useMemo(() => {
+    const baseActions = [
+      { labelKey: 'doctors.addNewDoctor', defaultLabel: 'Add New Doctor', icon: UserPlus, action: handleAddNew, type: 'add' },
+      { labelKey: 'common.edit', defaultLabel: 'Edit', icon: Edit, action: handleEditWithSelectionCheck, type: 'edit', selectionSensitive: true, requiredSelectionCount: 1 },
+      { labelKey: 'common.delete', defaultLabel: 'Delete', icon: Trash2, action: handleDeleteWithSelectionCheck, type: 'delete', selectionSensitive: true, requiredSelectionCount: 'multiple' },
+      { isSeparator: true },
+      { labelKey: 'buttons.import', defaultLabel: 'Import Doctors', icon: UploadCloud, action: () => toast({ title: t('common.featureComingSoonTitle'), description: t('common.featureComingSoonDesc', { featureName: t('buttons.import', { defaultValue: 'Import'}) }) }), disabled: true, type: 'import' },
+      { labelKey: 'buttons.export', defaultLabel: 'Export Doctors', icon: DownloadCloud, action: () => toast({ title: t('common.featureComingSoonTitle'), description: t('common.featureComingSoonDesc', { featureName: t('buttons.export', { defaultValue: 'Export'}) }) }), disabled: true, type: 'export' },
+    ];
+    return [...baseActions, ...(externalActionsConfig || [])];
+  }, [handleAddNew, externalActionsConfig, t, toast, handleEditWithSelectionCheck, handleDeleteWithSelectionCheck]);
+
+  const doctorTableColumns = useMemo(() => [
     { 
-      accessorKey: 'name', 
-      header: t('doctors.fields.name', {defaultValue: 'Name'}),
-      cell: ({ row }) => getLocalizedDoctorName(row.original),
+      accessorKey: language === 'he' ? 'last_name_he' : 'last_name_en', // For display, sorting might need specific handling
+      header: t('doctors.fields.lastName', {defaultValue: 'Last Name'}), 
       enableSorting: true,
+      cell: ({ row }) => getLocalizedValue(row.original, 'last_name', language, 'en', t('common.notSet', { defaultValue: 'N/A' }))
     },
     { 
-      accessorKey: 'license_number', 
-      header: t('doctors.fields.licenseNumber', {defaultValue: 'License No.'}),
-      cell: ({ row }) => row.original.license_number || t('common.notSet', {defaultValue: 'N/A'}),
+      accessorKey: language === 'he' ? 'first_name_he' : 'first_name_en', 
+      header: t('doctors.fields.firstName', {defaultValue: 'First Name'}), 
       enableSorting: true,
+      cell: ({ row }) => getLocalizedValue(row.original, 'first_name', language, 'en', t('common.notSet', { defaultValue: 'N/A' }))
     },
+    { accessorKey: 'license_number', header: t('doctors.fields.licenseNumber', {defaultValue: 'License No.'}), enableSorting: true, cell: ({row}) => row.original.license_number || t('common.notSet', {defaultValue: 'N/A'}) },
     { 
       accessorKey: 'specialties', 
-      header: t('doctors.fields.specialties', {defaultValue: 'Specialties'}),
-      cell: ({ row }) => (Array.isArray(row.original.specialties) && row.original.specialties.length > 0
-        ? row.original.specialties.map(s => t(`doctorSpecialties.${s.replace(/\s+/g, '_')}`, {defaultValue: s})).join(', ')
-        : t('common.notSet', {defaultValue: 'N/A'})
-      ),
-      enableSorting: false, 
+      header: t('doctors.fields.specialties', {defaultValue: 'Specialties'}), 
+      cell: ({ row }) => Array.isArray(row.original.specialties) && row.original.specialties.length > 0 
+                        ? row.original.specialties.map(s => <Badge key={s} variant="secondary" className="mr-1 mb-1">{t(`doctorSpecialties.${s.replace(/\s+/g, '_')}`, {defaultValue: s})}</Badge>) 
+                        : t('common.notSet', {defaultValue: 'N/A'}),
+      enableSorting: false // Sorting arrays is complex
     },
     { 
       accessorKey: 'status', 
-      header: t('common.status', {defaultValue: 'Status'}),
-      cell: ({ row }) => (
-        <Badge className={`text-xs ${row.original.status === 'active' ? 'bg-green-100 text-green-700 dark:bg-green-700/30 dark:text-green-200' : 'bg-gray-100 text-gray-600 dark:bg-gray-700/30 dark:text-gray-300'}`}>
-          {t(`status.${row.original.status}`, {defaultValue: row.original.status})}
-        </Badge>
-      ),
-      enableSorting: true,
+      header: t('doctors.fields.status', {defaultValue: 'Status'}),
+      cell: ({ row }) => <StatusBadge status={row.original.status} t={t} />,
+      enableSorting: true
     },
     { 
-      accessorKey: 'updated_date', 
-      header: t('common.lastUpdated', {defaultValue: 'Last Updated'}),
-      cell: ({ row }) => (row.original.updated_date && isValid(parseISO(row.original.updated_date))
-        ? formatDistanceToNow(parseISO(row.original.updated_date), { addSuffix: true, locale: currentLocale })
-        : t('common.unknown', {defaultValue: 'Unknown'})
-      ),
+      accessorKey: 'email', 
+      header: t('doctors.fields.email', {defaultValue: 'Email'}), 
       enableSorting: true,
+      cell: ({row}) => row.original.email || t('common.notSet', {defaultValue: 'N/A'})
     },
-  ], [t, getLocalizedDoctorName, currentLocale, isRTL]);
+    { 
+      accessorKey: 'phone', 
+      header: t('doctors.fields.phone', {defaultValue: 'Phone'}), 
+      enableSorting: false, // Phone numbers can be tricky to sort meaningfully
+      cell: ({row}) => row.original.phone || t('common.notSet', {defaultValue: 'N/A'})
+    },
+  ], [t, language]);
 
-  if (loading && doctors.length === 0 && !isCacheValid('doctors')) {
-    return <LoadingSpinner className="mt-20" message={t('messages.loadingData', { item: t('pageTitles.doctors') })} />;
-  }
+  const renderContent = () => {
+    // If loading and no data available yet (not even cached), show full spinner.
+    // If error and no data available, show error display.
+    if (loading && doctors.length === 0 && !error) {
+      return <LoadingSpinner message={t('messages.loadingData', { item: entityConfig.entityNamePlural })} isFullScreen={false} />;
+    }
+    // If there's a critical error and no data to display, show error display.
+    if (error && doctors.length === 0) {
+      return <ErrorDisplay errorMessage={error.message || String(error)} onRetry={refreshDoctors} t={t} isRTL={isRTL} />;
+    }
 
-  if (error && doctors.length === 0 && (!doctorsApiCache.doctors?.error || doctorsApiCache.doctors.error === error)) {
-     return (
-      <div className="flex flex-col items-center justify-center h-full p-4 text-center">
-        <AlertTriangle className="w-16 h-16 text-red-500 mb-4" />
-        <h2 className="text-xl font-semibold text-red-700 dark:text-gray-200 mb-2">{t('errors.dataLoadErrorTitle')}</h2>
-        <p className="text-gray-600 dark:text-gray-400 mb-4">{error}</p>
-        <Button onClick={handleRefresh} variant="outline" className="mt-4 dark:text-gray-300 dark:border-gray-500 dark:hover:bg-gray-700">
-          <RefreshCw className={`h-4 w-4 ${isRTL ? 'ml-2' : 'mr-2'}`} />
-          {t('buttons.retry')}
-        </Button>
-      </div>
-    );
-  }
-  
-  const itemsForSelectAllCheckbox = currentView === 'table' ? filteredAndSortedDoctors : paginatedDoctors;
-  const allVisibleSelected = Array.isArray(itemsForSelectAllCheckbox) && itemsForSelectAllCheckbox.length > 0 && itemsForSelectAllCheckbox.every(item => selectedItemIds.has(item.id));
+    const noItems = pagination.totalCount === 0;
+    const noFiltersApplied = Object.entries(filters || {}).every(([key, val]) => !val || val === 'all' || key === 'page' || key === 'pageSize');
 
-  return (
-    <div className="space-y-4">
-      {!isSelectionModeActive && (
-        <div className="flex flex-col sm:flex-row items-center justify-between gap-2 sticky top-0 bg-background dark:bg-gray-900 py-3 z-10 -mx-1 px-1 md:mx-0 md:px-0 border-b dark:border-gray-700">
-            <h2 className="text-xl font-semibold text-gray-800 dark:text-gray-100 flex items-center">
-                <UserCircle className={`h-6 w-6 ${isRTL ? 'ml-2' : 'mr-2'} text-blue-600 dark:text-blue-400`} />
-                {t('pageTitles.doctors')} ({totalItems})
-            </h2>
-            <div className="flex items-center gap-2">
-                <GlobalActionButton
-                    actionsConfig={doctorGlobalActionsConfig}
-                    onStartSelectionMode={handleStartSelectionMode} 
-                    itemTypeForActions={t('pageTitles.doctorsSingular')}
-                    t={t} isRTL={isRTL}
-                />
-                <Button variant="outline" size="sm" onClick={handleRefresh} disabled={loading && doctorsApiCache.doctors.loading} className="dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800">
-                    <RefreshCw className={`h-4 w-4 ${loading && doctorsApiCache.doctors.loading ? 'animate-spin' : ''} ${isRTL ? 'ml-1.5' : 'mr-1.5'}`} />
-                    {t('buttons.refresh')}
-                </Button>
-                <ViewSwitcher
-                    currentView={currentView}
-                    onViewChange={(view) => { setCurrentView(view); handleCancelSelectionMode(); saveToStorage('doctors_view_preference', view);}}
-                    availableViews={['card', 'table']}
-                    entityName={t('pageTitles.doctors')}
-                    t={t} isRTL={isRTL}
-                />
-            </div>
-        </div>
-      )}
-
-      {isSelectionModeActive && (
-        <div className="sticky top-0 bg-blue-50 dark:bg-blue-900/30 py-2 px-2 md:px-4 z-10 border-b border-blue-200 dark:border-blue-700 rounded-md shadow-sm">
-          <div className="flex flex-col sm:flex-row items-center justify-between gap-2">
-            <div className="flex items-center gap-3">
-              <Checkbox
-                id="selectAllVisibleDoctors"
-                checked={allVisibleSelected}
-                onCheckedChange={handleSelectAllVisible}
-                aria-label={t('bulkActions.selectAllVisible', { defaultValue: 'Select all visible' })}
-                disabled={itemsForSelectAllCheckbox.length === 0}
-                className="border-gray-400 dark:border-gray-500 data-[state=checked]:bg-blue-600 data-[state=checked]:border-blue-600"
-              />
-              <label htmlFor="selectAllVisibleDoctors" className="text-sm font-medium text-blue-700 dark:text-blue-200">
-                {selectedItemIds.size > 0 
-                    ? t('bulkActions.selectedCount', { count: selectedItemIds.size, defaultValue: `${selectedItemIds.size} selected`})
-                    : t('bulkActions.selectItemsPromptShort', { mode: t(`common.${selectionMode}`, {defaultValue: selectionMode}), defaultValue: `Select items to ${selectionMode}` })
-                }
-              </label>
-            </div>
-            <div className="flex items-center gap-2">
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={handleCancelSelectionMode}
-                className="text-blue-600 hover:bg-blue-100 dark:text-blue-300 dark:hover:bg-blue-800"
-              >
-                <XCircle className={`h-4 w-4 ${isRTL ? 'ml-1.5' : 'mr-1.5'}`} />
-                {t('common.cancel', {defaultValue: 'Cancel'})}
-              </Button>
-              <Button
-                size="sm"
-                onClick={handleConfirmSelectionAction}
-                className="bg-blue-600 hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600 text-white"
-                disabled={selectedItemIds.size === 0 || (selectionMode === 'edit' && selectedItemIds.size !== 1)}
-              >
-                <CheckCircle2 className={`h-4 w-4 ${isRTL ? 'ml-1.5' : 'mr-1.5'}`} />
-                {selectionMode === 'edit' ? t('common.edit', {defaultValue: 'Edit'}) : t('common.delete', {defaultValue: 'Delete'})} {selectedItemIds.size > 0 ? `(${selectedItemIds.size})` : ''}
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
-      
-      {!isSelectionModeActive && (
-        <DoctorFilterBar
-            filters={filters}
-            onFiltersChange={(newFiltersObj) => setFilters(prev => ({...prev, ...newFiltersObj, page: 1}))}
-            onResetFilters={() => {
-            setFilters({ searchTerm: '', status: 'all', specialty: 'all', city: 'all', page: 1, pageSize: filters.pageSize });
-            setSortConfig({ key: 'name', direction: 'ascending' });
-            }}
-            sortConfig={sortConfig}
-            onSortChange={(key) => {
-                let direction = 'ascending';
-                if (sortConfig.key === key && sortConfig.direction === 'ascending') direction = 'descending';
-                else if (sortConfig.key === key && sortConfig.direction === 'descending') direction = 'ascending'; 
-                setSortConfig({ key, direction });
-            }}
-            allDoctors={doctors}
-            t={t} language={language} isRTL={isRTL}
-            currentView={currentView} 
-        />
-      )}
-      
-      {doctorsApiCache.doctors?.error && !error && (doctors.length > 0 || !loading) && (
-         <div className="p-3 mb-3 bg-yellow-50 dark:bg-yellow-900/30 border border-yellow-400 dark:border-yellow-500 text-yellow-700 dark:text-yellow-200 rounded-md flex items-center gap-2 text-sm">
-            <AlertTriangle className="h-4 w-4" />
-            <span>{t('errors.partialLoadWarning', { entity: t('pageTitles.doctors'), message: doctorsApiCache.doctors.error})}</span>
-        </div>
-      )}
-
-      {(loading && doctors.length > 0) && <LoadingSpinner message={t('messages.updatingData', { item: t('pageTitles.doctors') })} />}
-      
-      {!loading && filteredAndSortedDoctors.length === 0 && (filters.searchTerm || filters.status !== 'all' || filters.specialty !== 'all' || filters.city !== 'all') && doctors.length > 0 ? (
-        <EmptyState
-          icon={UserCircle}
-          title={t('emptyStates.noDoctorsFilterTitle', {defaultValue: "No Doctors Match Filters"})}
-          message={t('emptyStates.noDoctorsFilterMessage', {defaultValue: "Try adjusting your search or filter criteria."})}
-        />
-      ) : !loading && doctors.length === 0 && !error ? (
-        <EmptyState
-          icon={UserCircle}
-          title={t('emptyStates.noDoctorsTitle', {defaultValue: "No Doctors Found"})}
-          message={t('emptyStates.noDoctorsMessage', {defaultValue: "Start by adding a new doctor to manage their details."})}
-           actionButton={
-             !isSelectionModeActive && <Button onClick={openDoctorDialogForAdd}><Plus className={`h-4 w-4 ${isRTL ? 'ml-1.5' : 'mr-1.5'}`} />{t('doctors.addNewDoctor')}</Button>
-          }
-        />
-      ) : (filteredAndSortedDoctors.length > 0 || (loading && doctors.length > 0)) && (
+    if (currentView === 'card') {
+      return (
         <>
-          {currentView === 'card' && (
+          {noItems && noFiltersApplied ? (
+            <EmptyState
+              icon={Users}
+              title={t('doctors.emptyState.noDoctorsTitle', {defaultValue: "No Doctors Found"})}
+              message={t('doctors.emptyState.noDoctorsDesc', {defaultValue: "Start by adding a new doctor to manage their details."})}
+              actionButton={<Button onClick={handleAddNew} className="bg-sky-600 hover:bg-sky-700 dark:bg-sky-500 dark:hover:bg-sky-600"><UserPlus className={`${isRTL ? 'ml-2' : 'mr-2'} h-4 w-4`} />{t('doctors.addNewDoctor')}</Button>}
+              t={t} isRTL={isRTL}
+            />
+          ) : noItems && !noFiltersApplied ? (
+            <EmptyState
+              icon={SearchX}
+              title={t('doctors.emptyState.noDoctorsMatchTitle', {defaultValue: "No Doctors Match Filters"})}
+              message={t('doctors.emptyState.noDoctorsMatchDesc', {defaultValue: "Try adjusting your search or filter criteria."})}
+              t={t} isRTL={isRTL}
+            />
+          ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-              {paginatedDoctors.map((doc) => (
-                <DoctorCard
-                  key={doc.id}
-                  doctor={doc}
-                  onCardClick={openDetailsDrawer}
-                  currentLocale={currentLocale}
-                  t={t} isRTL={isRTL} language={language}
+              {doctors.map(doctor => (
+                <DoctorCard 
+                  key={doctor.id} 
+                  doctor={doctor} 
+                  onEdit={() => !isSelectionModeActive && handleEdit(doctor)} // Prevent edit if in selection mode from card click
+                  onCardClick={() => !isSelectionModeActive && handleEdit(doctor)}
+                  language={language}
                   isSelectionModeActive={isSelectionModeActive}
-                  isSelected={selectedItemIds.has(doc.id)}
-                  onToggleSelection={handleToggleSelection}
+                  isSelected={selectedItems.includes(doctor.id)}
+                  onToggleSelection={() => handleToggleSelection(doctor.id)}
+                  t={t} isRTL={isRTL}
                 />
               ))}
             </div>
           )}
-          {currentView === 'table' && (
-            <DataTable
-              columns={doctorColumnsForTable}
-              data={filteredAndSortedDoctors} 
-              loading={loading && doctors.length > 0}
-              error={null} 
-              pagination={{
-                currentPage: filters.page,
-                pageSize: filters.pageSize,
-                totalItems: totalItems,
-                totalPages: totalPages,
-                onPageChange: handlePageChange,
-                onPageSizeChange: handlePageSizeChange,
-                itemsPerPageOptions: [10, 20, 50, 100],
-              }}
-              onSortChange={handleDataTableSortChange}
-              currentSort={sortConfig.key ? [{ id: sortConfig.key, desc: sortConfig.direction === 'descending' }] : []}
-              entityName={t('pageTitles.doctors')}
-              isSelectionModeActive={isSelectionModeActive}
-              selectedRowIds={selectedItemIds}
-              onRowSelectionChange={handleToggleSelection} 
-              onSelectAllRows={handleSelectAllVisible}
-              onRowClick={({original: item}) => !isSelectionModeActive && item?.id && openDetailsDrawer(item.id)}
-              t={t} language={language} isRTL={isRTL}
-            />
-          )}
-          {currentView === 'card' && totalPages > 1 && (
-            <div className="flex justify-center items-center pt-4 space-x-2 rtl:space-x-reverse">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => handlePageChange(filters.page - 1)}
-                disabled={filters.page <= 1 || loading}
-                className="dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700"
-              >
-                {t('buttons.previous')}
+          {Math.ceil(pagination.totalCount / pagination.pageSize) > 1 && (
+             <div className="mt-6 flex justify-center items-center space-x-2 rtl:space-x-reverse">
+              <Button variant="outline" size="sm" onClick={() => handlePageChange(pagination.currentPage - 1)} disabled={pagination.currentPage === 1 || loading} className="dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700">
+                {t('buttons.previous', { defaultValue: 'Previous'})}
               </Button>
               <span className="text-sm text-gray-700 dark:text-gray-300">
-                {t('dataTable.pageInfo', { page: filters.page, totalPages: totalPages})}
+                {t('dataTable.pageInfo', { page: pagination.currentPage, totalPages: Math.ceil(pagination.totalCount / pagination.pageSize) || 1 })}
               </span>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => handlePageChange(filters.page + 1)}
-                disabled={filters.page >= totalPages || loading}
-                className="dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700"
-              >
-                {t('buttons.next')}
+              <Button variant="outline" size="sm" onClick={() => handlePageChange(pagination.currentPage + 1)} disabled={pagination.currentPage >= (Math.ceil(pagination.totalCount / pagination.pageSize) || 1) || loading} className="dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700">
+                {t('buttons.next', { defaultValue: 'Next' })}
               </Button>
             </div>
           )}
         </>
-      )}
+      );
+    }
+    
+    if (currentView === 'table') {
+        return (
+            <DataTable
+                columns={doctorTableColumns}
+                data={doctors} // paginatedItems
+                loading={loading}
+                error={null} // Error handled by top-level ErrorDisplay/Toast
+                onRetry={refreshDoctors}
+                entityName={entityConfig.entityNamePlural}
+                emptyMessage={noFiltersApplied ? t('doctors.emptyState.noDoctorsDesc') : t('doctors.emptyState.noDoctorsMatchDesc')}
+                onRowClick={({original: item}) => !isSelectionModeActive && item?.id && handleEdit(item)} // Or open details drawer
+                isSelectionModeActive={isSelectionModeActive}
+                selectedRowIds={new Set(selectedItems)}
+                onRowSelectionChange={handleToggleSelection}
+                onSelectAllRows={() => handleSelectAll(doctors.map(d => d.id))}
+                currentSort={sortConfig.length > 0 ? [{ id: sortConfig[0].id, desc: sortConfig[0].desc }] : []}
+                onSortChange={(newSortState) => {
+                  if (newSortState && newSortState.length > 0) {
+                    const { id, desc } = newSortState[0];
+                    handleSortChange([{ id, desc }]);
+                  } else {
+                    handleSortChange(entityConfig.initialSort);
+                  }
+                }}
+                pagination={{
+                    currentPage: pagination.currentPage,
+                    pageSize: pagination.pageSize,
+                    totalItems: pagination.totalCount,
+                    totalPages: Math.ceil(pagination.totalCount / pagination.pageSize) || 1,
+                    onPageChange: handlePageChange,
+                    onPageSizeChange: handlePageSizeChange,
+                    itemsPerPageOptions: [10, 20, 50, 100],
+                }}
+                t={t} language={language} isRTL={isRTL}
+            />
+        );
+    }
+    return null;
+  };
 
-      {isDoctorDialogOpen && (
+  return (
+    <div className="space-y-4 p-1 md:p-0">
+      <div className="flex flex-col sm:flex-row items-center justify-between gap-2 sticky top-[calc(var(--header-height,0px)+var(--subheader-height,0px))] bg-background dark:bg-gray-900 py-3 z-10 -mx-1 px-1 md:mx-0 md:px-0 border-b dark:border-gray-700">
+        <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-100 flex items-center">
+          <Users className={`${isRTL ? 'ml-2' : 'mr-2'} h-5 w-5 text-gray-600 dark:text-gray-400`} />
+          {t('doctors.titleMultiple', {defaultValue: "Doctors"})} ({loading && typeof pagination.totalCount === 'undefined' ? t('common.loadingEllipsis', {defaultValue: 'Loading...'}) : pagination.totalCount || 0})
+        </h3>
+        <div className="flex items-center gap-2">
+          <GlobalActionButton
+            actionsConfig={memoizedGlobalActionsConfig}
+            isSelectionModeActive={isSelectionModeActive}
+            onCancelSelectionMode={handleCancelSelectionMode}
+            selectedItemCount={selectedItems.length}
+            itemTypeForActions={entityConfig.entityName}
+            t={t} isRTL={isRTL}
+          />
+          <Button onClick={refreshDoctors} variant="outline" size="sm" disabled={loading} className="dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800">
+            <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''} ${isRTL ? 'ml-1.5' : 'mr-1.5'}`} />
+            {t('buttons.refresh', {defaultValue: 'Refresh'})}
+          </Button>
+          <ViewSwitcher
+            currentView={currentView}
+            onViewChange={handleViewChange}
+            availableViews={['card', 'table']}
+            entityName={t('pageTitles.doctors', {defaultValue: 'Doctors'})}
+            t={t} isRTL={isRTL}
+          />
+        </div>
+      </div>
+      
+      <DoctorFilterBar 
+        filters={filters} 
+        onFiltersChange={handleFilterChange}
+        onResetFilters={() => {
+            handleFilterChange(null, entityConfig.initialFilters);
+            handleSortChange(entityConfig.initialSort);
+            handleCancelSelectionMode();
+        }}
+        sortConfig={sortConfig.length > 0 ? { key: sortConfig[0].id, direction: sortConfig[0].desc ? 'descending' : 'ascending' } : {key: entityConfig.initialSort[0].id, direction: entityConfig.initialSort[0].desc ? 'descending' : 'ascending' }}
+        onSortChange={(newSortKey) => {
+            const currentSortField = sortConfig[0]?.id;
+            const currentDesc = sortConfig[0]?.desc;
+            handleSortChange([{ id: newSortKey, desc: currentSortField === newSortKey ? !currentDesc : false }]);
+        }}
+        cityOptions={cities} // Pass fetched city options
+        t={t} language={language} isRTL={isRTL}
+      />
+
+      {error && doctors.length > 0 && (
+        <div className="p-3 mb-3 bg-yellow-50 dark:bg-yellow-900/30 border border-yellow-400 dark:border-yellow-500 text-yellow-700 dark:text-yellow-200 rounded-md flex items-center gap-2 text-sm">
+           <SearchX className="h-4 w-4" />
+           <span>{t('errors.partialLoadWarning', { entity: t('pageTitles.doctors', {defaultValue: 'Doctors'}), message: String(error.message || error)})}</span>
+        </div>
+      )}
+      {loading && doctors.length > 0 && <LoadingSpinner message={t('messages.updatingData', {item: entityConfig.entityNamePlural})} isFullScreen={false} />}
+
+      {renderContent()}
+
+      {isDialogOpen && (
         <DoctorDialog
-          isOpen={isDoctorDialogOpen}
-          onCloseDialog={handleDialogClose} 
-          doctor={currentDoctorForDialog}
-          allSpecialties={Array.from(new Set(doctors.flatMap(d => d.specialties || []).filter(Boolean)))}
-          allCities={Array.from(new Set(doctors.map(p => p.city).filter(Boolean)))}
+          isOpen={isDialogOpen}
+          onCloseDialog={(refresh, actionType, itemName) => handleSelfSubmittingDialogClose(refresh, actionType, itemName)}
+          doctor={currentItem}
+          // Pass all specialties and cities from the full data for filter/dialog dropdowns
+          allSpecialties={Array.from(new Set(filteredAndSortedItems.flatMap(d => (d.specialties || []).concat(d.sub_specialties || [])).filter(Boolean)))}
+          allCities={cities}
           t={t} language={language} isRTL={isRTL}
-        />
-      )}
-      {deleteDialogState.isOpen && (
-        <ConfirmationDialog
-          open={deleteDialogState.isOpen}
-          onOpenChange={(open) => setDeleteDialogState(prev => ({...prev, isOpen: open}))}
-          onConfirm={handleConfirmDelete}
-          title={t('common.confirmDeleteTitle', {item: deleteDialogState.itemName, count: deleteDialogState.itemIds?.length || 1})}
-          description={deleteDialogState.message || t('common.confirmDeleteDescription', {item: deleteDialogState.itemName, count: deleteDialogState.itemIds?.length || 1})}
-          confirmText={t('common.delete')}
-          cancelText={t('common.cancel')}
-          loading={loading && deleteDialogState.isOpen}
-          t={t} isRTL={isRTL}
-        />
-      )}
-      {isDetailsDrawerOpen && selectedDoctorIdForDrawer && (
-        <DoctorDetailsDrawer
-          doctorId={selectedDoctorIdForDrawer}
-          isOpen={isDetailsDrawerOpen}
-          onClose={() => { setIsDetailsDrawerOpen(false); setSelectedDoctorIdForDrawer(null); }}
-          onEditDoctor={(doctorToEdit) => {
-            setIsDetailsDrawerOpen(false); 
-            openDoctorDialogForEdit(doctorToEdit);
-          }}
-          onDeleteDoctor={(doctorToDelete) => {
-             setIsDetailsDrawerOpen(false);
-             const doctorName = getLocalizedDoctorName(doctorToDelete);
-             setDeleteDialogState({
-                isOpen: true,
-                itemIds: [doctorToDelete.id],
-                itemName: doctorName,
-                message: t('doctors.deleteConfirmMessage', { name: doctorName, defaultValue: `Are you sure you want to delete ${doctorName}? This action cannot be undone.` })
-            });
-          }}
-          t={t} language={language} isRTL={isRTL}
-        />
-      )}
-      {isImportDialogOpen && (
-        <ImportDialog
-          isOpen={isImportDialogOpen}
-          onClose={() => setIsImportDialogOpen(false)}
-          onImportSubmit={handleImportSubmit} 
-          entityName={t('pageTitles.doctors')}
-          sampleHeaders={['First Name EN', 'Last Name EN', 'First Name HE', 'Last Name HE', 'License Number', 'Specialties (comma-separated)', 'Phone', 'Email', 'City', 'Status (active/inactive)']}
-          language={language} isRTL={isRTL} 
         />
       )}
     </div>

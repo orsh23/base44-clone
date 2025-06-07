@@ -1,54 +1,25 @@
-import { useState, useEffect } from 'react';
-import { User } from '@/api/entities';
+// Content of components/hooks/useLanguage.js
+import { useContext } from 'react';
+import { LanguageContext } from '@/components/LanguageContext'; 
 
-export default function useLanguage(defaultLang = 'he') {
-  const [language, setLanguage] = useState(defaultLang);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState(null);
-  
-  useEffect(() => {
-    async function loadUserLanguage() {
-      try {
-        setIsLoading(true);
-        const userData = await User.me();
-        setLanguage(userData.preferred_language || defaultLang);
-      } catch (error) {
-        console.error('Error loading language preferences:', error);
-        setError(error);
-      } finally {
-        setIsLoading(false);
-      }
-    }
-    
-    loadUserLanguage();
-  }, [defaultLang]);
-  
-  const updateLanguage = async (newLanguage) => {
-    try {
-      setIsLoading(true);
-      await User.updateMyUserData({ preferred_language: newLanguage });
-      setLanguage(newLanguage);
-    } catch (error) {
-      console.error('Error updating language preference:', error);
-      setError(error);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-  
-  // FIXED: Always return a boolean for isRTL
-  const isRTL = Boolean(language === 'he');
-  
-  // Development safety check
-  if (typeof isRTL !== 'boolean') {
-    console.warn("Warning: isRTL should be a boolean, got:", isRTL);
+/**
+ * Custom hook to access language context.
+ * Provides current language, setter function, translation function (t), and RTL status.
+ * @returns {{
+ *  language: string,
+ *  setLanguage: (lang: string) => void,
+ *  t: (key: string, options?: object) => string,
+ *  isRTL: boolean,
+ *  languageDirection: 'ltr' | 'rtl'
+ * }}
+ * @throws {Error} if used outside of a LanguageProvider.
+ */
+export const useLanguage = () => {
+  const context = useContext(LanguageContext);
+  if (context === undefined) {
+    // This error means you've forgotten to wrap your app (or part of it)
+    // in a <LanguageProvider>.
+    throw new Error('useLanguage must be used within a LanguageProvider');
   }
-  
-  return { 
-    language, 
-    setLanguage: updateLanguage, 
-    isRTL, 
-    isLoading, 
-    error 
-  };
-}
+  return context;
+};

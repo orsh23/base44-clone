@@ -1,12 +1,18 @@
+
 import React, { useState, useEffect, useMemo } from 'react';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogClose } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import { DialogClose } from '@/components/ui/dialog'; // Re-added separately to preserve functionality
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import FormField from '@/components/forms/FormField';
-import BilingualInput from '@/components/forms/BilingualInput'; // Assuming notes can be bilingual
+import { Textarea } from '@/components/ui/textarea'; // New import
+import FormField from '@/components/shared/forms/FormField'; // Corrected FormField import path
+import BilingualInput from '@/components/forms/BilingualInput'; // Assuming notes can be bilingual - kept as used in component
+import { City } from '@/api/entities'; // New import
 import { Street } from '@/api/entities'; // To fetch streets
+import { Address } from '@/api/entities'; // New import
+import { useLanguageHook } from '@/components/useLanguageHook'; // New import
 import { useToast } from "@/components/ui/use-toast";
 
 

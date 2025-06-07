@@ -1,42 +1,11 @@
-// components/ui/LoadingSpinner.jsx
-import React from 'react';
-
-export default function LoadingSpinner({ 
-  size = 24, 
-  className = "", 
-  message = 'Loading...', 
-  overlay = false 
-}) {
-  const baseClasses = 'flex flex-col items-center justify-center gap-2';
-  const overlayClasses = overlay ? 'fixed inset-0 z-50 bg-background/80 backdrop-blur-sm' : '';
-  const combinedClasses = `${baseClasses} ${overlayClasses} ${className}`;
-
+export default function LoadingSpinner({ message }) {
   return (
-    <div className={combinedClasses}>
-      <svg
-        className="animate-spin text-muted-foreground"
-        xmlns="http://www.w3.org/2000/svg"
-        fill="none"
-        viewBox="0 0 24 24"
-        width={size}
-        height={size}
-      >
-        <circle
-          className="opacity-25"
-          cx="12"
-          cy="12"
-          r="10"
-          stroke="currentColor"
-          strokeWidth="4"
-        ></circle>
-        <path
-          className="opacity-75"
-          fill="currentColor"
-          d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"
-        ></path>
+    <div className="flex flex-col items-center py-4" role="status">
+      <svg className="animate-spin h-5 w-5 mr-3 text-gray-600" viewBox="0 0 24 24">
+        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4l3-3-3-3v4a8 8 0 000 16v-4l-3 3 3 3v-4a8 8 0 01-8-8z" />
       </svg>
-      {message && <p className="text-sm text-muted-foreground animate-pulse">{message}</p>}
+      {message && <span className="text-sm text-gray-600 mt-2">{message}</span>}
     </div>
   );
 }
-

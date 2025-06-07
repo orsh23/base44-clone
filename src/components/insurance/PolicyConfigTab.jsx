@@ -1,27 +1,27 @@
 
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { PolicyCoverage } from '@/api/entities'; // Assuming this entity exists or is a placeholder for data structure
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useLanguageHook } from '@/components/useLanguageHook';
 import { useToast } from "@/components/ui/use-toast";
+import { PolicyCoverage } from '@/api/entities';
+import { InsurancePolicy } from '@/api/entities';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'; // For error message card
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import LoadingSpinner from '@/components/ui/loading-spinner';
 import EmptyState from '@/components/ui/empty-state';
 import ConfirmationDialog from '@/components/ui/confirmation-dialog';
-import PolicyCoverageDialog from './PolicyCoverageDialog'; // Dialog for add/edit
+import PolicyCoverageDialog from './PolicyCoverageDialog';
 import PolicyCoverageCard from './PolicyCoverageCard';
 import ViewSwitcher from '@/components/common/ViewSwitcher';
 import GlobalActionButton from '@/components/common/GlobalActionButton';
-import DataTable from '@/components/shared/DataTable';
-import PolicyCoverageFilterBar from './PolicyCoverageFilterBar'; // Specific filter bar
-import ImportDialog from '@/components/common/ImportDialog';
+import ImportDialog from '@/components/common/ImportDialog'; // Corrected path
+import DataTable from '@/components/ui/data-table'; 
+import PolicyCoverageFilterBar from './PolicyCoverageFilterBar';
+import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
-import { Badge } from '@/components/ui/badge'; // Added Badge import
-import {
-    ShieldCheck, Plus, Edit, Trash2, UploadCloud, DownloadCloud, Eye,
+import { ShieldCheck, Plus, Edit, Trash2, UploadCloud, DownloadCloud, Eye,
     RefreshCw, SquareCheckBig, XCircle, FilterX, AlertTriangle
-} from 'lucide-react'; // Using ShieldCheck for policy config
-import { format, parseISO, isValid } from 'date-fns'; // For date formatting if needed
+} from 'lucide-react'; 
+import { format, parseISO, isValid } from 'date-fns'; 
 import { enUS, he } from 'date-fns/locale';
 
 const getLocaleObject = (languageCode) => (languageCode === 'he' ? he : enUS);

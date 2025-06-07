@@ -1,42 +1,21 @@
-import { useState, useCallback } from 'react';
+// Content of components/hooks/useStore.js
+import { useContext } from 'react';
+import { AppStoreContext } // Assuming AppStoreContext is defined elsewhere and provides the Zustand store
+    from '@/components/store/useAppStore'; // Adjust path as necessary
 
-// This is a simple hook-based store replacement for Zustand
-export function createStore(initialState = {}) {
-  // Create a custom hook that components can use
-  return function useCustomStore() {
-    const [state, setState] = useState(initialState);
-    
-    const updateState = useCallback((updater) => {
-      setState(prevState => {
-        // Handle function or object updates
-        const newState = typeof updater === 'function' 
-          ? updater(prevState) 
-          : { ...prevState, ...updater };
-        return newState;
-      });
-    }, []);
-    
-    return [state, updateState];
-  };
-}
+/**
+ * Custom hook to access the Zustand store.
+ * @param {Function} selector - A selector function to pick parts of the store's state.
+ * @param {Function} [equalityFn] - Optional equality function for the selector.
+ * @returns The selected state from the store.
+ * @throws {Error} if used outside of an AppStoreProvider that makes the store available.
+ */
+const useStore = (selector, equalityFn) => {
+  const store = useContext(AppStoreContext);
+  if (!store) {
+    throw new Error('useStore must be used within an AppStoreProvider.');
+  }
+  return store(selector, equalityFn);
+};
 
-// Create app-level stores here
-export const useAppSettingsStore = createStore({
-  language: 'he',
-  theme: 'light',
-  isMenuOpen: false
-});
-
-export const useAuthStore = createStore({
-  user: null,
-  isLoading: true,
-  userRole: null,
-  error: null
-});
-
-export const useUIStore = createStore({
-  activeTab: null,
-  modalOpen: false,
-  modalContent: null,
-  toasts: []
-});
+export default useStore;

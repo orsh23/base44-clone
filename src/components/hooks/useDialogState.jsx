@@ -1,32 +1,38 @@
+// Content of components/hooks/useDialogState.js
 import { useState, useCallback } from 'react';
 
-/**
- * Hook to manage entity dialog open/close state and the current entity being edited
- * 
- * @returns {Object} Dialog state management functions and state
- */
-export function useDialogState() {
-  const [isDialogOpen, setIsDialogOpen] = useState(false);
-  const [currentEntity, setCurrentEntity] = useState(null);
+export function useDialogState(initialOpen = false) {
+  const [isOpen, setIsOpen] = useState(initialOpen);
+  const [dialogData, setDialogData] = useState(null); // To pass data to the dialog
 
-  const openDialog = useCallback((entity = null) => {
-    setCurrentEntity(entity);
-    setIsDialogOpen(true);
+  const openDialog = useCallback((data = null) => {
+    setDialogData(data);
+    setIsOpen(true);
   }, []);
 
   const closeDialog = useCallback(() => {
-    setIsDialogOpen(false);
-    // Don't clear entity immediately to avoid UI flickering during dialog close animation
-    // The form reset will happen before next dialog open
-    setTimeout(() => {
-      setCurrentEntity(null);
-    }, 300); // Reasonable timeout for dialog close animation
+    setIsOpen(false);
+    setDialogData(null); // Clear data on close
   }, []);
 
+  const toggleDialog = useCallback((data = null) => {
+    setIsOpen(prev => !prev);
+    if (isOpen) { // If closing
+        setDialogData(null);
+    } else if (data) { // If opening with new data
+        setDialogData(data);
+    }
+    // If opening without data, dialogData might retain old value if not cleared by closeDialog,
+    // or if toggleDialog is called to open without new data. Consider if this is desired.
+  }, [isOpen]);
+
   return {
-    isDialogOpen,
-    currentEntity,
+    isOpen,
     openDialog,
     closeDialog,
+    toggleDialog,
+    dialogData, // Expose data for the dialog component to use
+    setIsOpen, // Allow direct control if needed, though open/close/toggle are preferred
+    setDialogData, // Allow direct update of dialog data if necessary
   };
 }

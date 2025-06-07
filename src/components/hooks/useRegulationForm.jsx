@@ -1,138 +1,78 @@
-import { useState, useCallback, useEffect } from 'react';
-import { Regulation } from '../.@/api/entities/Regulation'; // Ensure correct path
-import { useToast } from '../ui/use-toast';
-import { useTranslation } from '../utils/i18n';
-import { messages } from '../utils/messages'; // Ensure this path is correct and file exists
+// Content of components/hooks/useRegulationForm.js
+import { useForm } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import * as z from 'zod';
+import { Regulation } from '@/api/entities'; 
+import { useToast } from '@/components/ui/use-toast';
+import { useLanguageHook } from '@/components/useLanguageHook';
 
-const getInitialFormData = (initialData) => {
-  const defaults = {
-    title_en: '',
-    title_he: '',
-    description_en: '',
-    description_he: '',
-    regulation_type: (REGULATION_TYPES.length > 0 ? REGULATION_TYPES[0].value : ''), // Assuming REGULATION_TYPES is defined
-    is_active: true,
-    effective_date: null, // Use null for dates for DatePicker
-    end_date: null,
-    document_url: '',
-    tags: [],
-    id: null,
-  };
-  if (initialData && typeof initialData === 'object') {
-    return {
-      ...defaults,
-      ...initialData,
-      // Ensure dates are valid Date objects or null for DatePicker
-      effective_date: initialData.effective_date ? new Date(initialData.effective_date) : null,
-      end_date: initialData.end_date ? new Date(initialData.end_date) : null,
-      tags: Array.isArray(initialData.tags) ? initialData.tags : [],
-    };
-  }
-  return defaults;
-};
-
-// Define REGULATION_TYPES here or ensure it's imported and available
-// This should ideally come from constants.js and be used by getRegulationTypeOptions
-const REGULATION_TYPES = [
-    { value: "Insurance", labelKey: "regulationTypes.insurance" },
-    { value: "Healthcare", labelKey: "regulationTypes.healthcare" },
-    { value: "Internal", labelKey: "regulationTypes.internal" },
-    { value: "Legal", labelKey: "regulationTypes.legal" },
-    { value: "Other", labelKey: "regulationTypes.other" },
-];
+// Define Zod schema for Regulation
+const getRegulationSchema = (t) => z.object({
+  title_en: z.string().min(1, { message: t('validation.requiredField', { fieldName: t('fields.titleEn', { defaultValue: 'Title (EN)' }) }) }),
+  title_he: z.string().min(1, { message: t('validation.requiredField', { fieldName: t('fields.titleHe', { defaultValue: 'Title (HE)' }) }) }),
+  description_en: z.string().min(1, { message: t('validation.requiredField', { fieldName: t('fields.descriptionEn', { defaultValue: 'Description (EN)' }) }) }),
+  description_he: z.string().min(1, { message: t('validation.requiredField', { fieldName: t('fields.descriptionHe', { defaultValue: 'Description (HE)' }) }) }),
+  regulation_type: z.enum(['Insurance', 'Healthcare', 'Internal', 'Legal', 'Other'], {
+    required_error: t('validation.requiredField', { fieldName: t('fields.regulationType', { defaultValue: 'Regulation Type' }) }),
+  }),
+  is_active: z.boolean().default(true),
+  effective_date: z.date({ required_error: t('validation.requiredField', { fieldName: t('fields.effectiveDate', { defaultValue: 'Effective Date' }) }) }),
+  end_date: z.date().optional().nullable(),
+  document_url: z.string().url({ message: t('validation.invalidUrl', { fieldName: t('fields.documentUrl', { defaultValue: 'Document URL' }) }) }).optional().nullable(),
+  tags: z.array(z.string()).optional().default([]),
+}).refine(data => !data.end_date || data.effective_date <= data.end_date, {
+  message: t('regulations.validation.endDateAfterEffective', { defaultValue: "End date must be after or same as effective date." }),
+  path: ['end_date'],
+});
 
 
-export function useRegulationForm(initialDataProp, onSaveSuccessCallback) {
-    const { t } = useTranslation();
-    const { toast } = useToast();
+export function useRegulationForm(defaultValues, onSubmitSuccess) {
+  const { t } = useLanguageHook();
+  const { toast } = useToast();
+  const regulationSchema = getRegulationSchema(t);
 
-    const [formData, setFormData] = useState(() => getInitialFormData(initialDataProp));
-    const [formErrors, setFormErrors] = useState({});
-    const [isSubmitting, setIsSubmitting] = useState(false);
+  const form = useForm({
+    resolver: zodResolver(regulationSchema),
+    defaultValues: defaultValues ? {
+        ...defaultValues,
+        effective_date: defaultValues.effective_date ? new Date(defaultValues.effective_date) : null,
+        end_date: defaultValues.end_date ? new Date(defaultValues.end_date) : null,
+        tags: defaultValues.tags || [],
+    } : {
+      is_active: true,
+      tags: [],
+    },
+  });
 
-    // Effect to synchronize formData when initialDataProp changes
-    useEffect(() => {
-        setFormData(getInitialFormData(initialDataProp));
-        setFormErrors({}); // Clear errors when data changes
-    }, [initialDataProp]);
+  const handleSubmit = form.handleSubmit(async (data) => {
+    try {
+      const dataToSave = {
+        ...data,
+        effective_date: data.effective_date?.toISOString().split('T')[0], // Format to YYYY-MM-DD
+        end_date: data.end_date?.toISOString().split('T')[0],
+        tags: Array.isArray(data.tags) ? data.tags : (data.tags ? String(data.tags).split(',').map(s=>s.trim()).filter(Boolean) : [])
+      };
 
-    const updateField = useCallback((field, value) => {
-        setFormData(prev => ({ ...prev, [field]: value }));
-        if (formErrors[field]) {
-            setFormErrors(prevErrors => {
-                const newErrors = { ...prevErrors };
-                delete newErrors[field];
-                return newErrors;
-            });
-        }
-    }, [formErrors]);
+      let result;
+      if (defaultValues?.id) {
+        result = await Regulation.update(defaultValues.id, dataToSave);
+        toast({ title: t('regulations.updateSuccessTitle'), description: t('regulations.updateSuccessDetail', { title: data.title_en }) });
+      } else {
+        result = await Regulation.create(dataToSave);
+        toast({ title: t('regulations.createSuccessTitle'), description: t('regulations.createSuccessDetail', { title: data.title_en }) });
+      }
+      if (onSubmitSuccess) onSubmitSuccess(result);
+      return result;
+    } catch (error) {
+      console.error("Error saving regulation:", error);
+      toast({
+        title: t('common.saveErrorTitle'),
+        description: error.message || t('common.saveErrorDetail', { entity: t('regulations.entityNameSingular') }),
+        variant: 'destructive',
+      });
+      throw error; // Re-throw to allow form to handle its state
+    }
+  });
 
-    const validateForm = useCallback(() => {
-        const errors = {};
-        if (!formData.title_en && !formData.title_he) {
-            errors.title_en = t('validation.requiredEither', { field: t('regulations.title') });
-        }
-        if (!formData.regulation_type) {
-            errors.regulation_type = t('validation.required', { field: t('regulations.type') });
-        }
-        if (!formData.effective_date) {
-            errors.effective_date = t('validation.required', { field: t('regulations.effectiveDate') });
-        }
-        // Add more validations as needed (e.g., date logic, URL format)
-        if (formData.end_date && formData.effective_date && new Date(formData.end_date) < new Date(formData.effective_date)) {
-            errors.end_date = t('validation.endDateAfterStartDate', { defaultValue: 'End date must be after effective date.' });
-        }
-
-        setFormErrors(errors);
-        return Object.keys(errors).length === 0;
-    }, [formData, t]);
-
-    const resetForm = useCallback((dataToResetTo) => {
-        // If specific data is provided for reset, use it, otherwise use initialDataProp
-        const effectiveInitialData = dataToResetTo !== undefined ? dataToResetTo : initialDataProp;
-        setFormData(getInitialFormData(effectiveInitialData));
-        setFormErrors({});
-    }, [initialDataProp]); // Dependency on initialDataProp ensures resetForm "knows" the latest initial data
-
-    const handleFormSubmit = useCallback(async (event) => {
-        if (event) event.preventDefault(); // Prevent default if it's a form event
-        if (!validateForm()) return;
-
-        setIsSubmitting(true);
-        try {
-            const dataToSave = { ...formData };
-            // Ensure dates are in ISO string format for saving, if they are Date objects
-            if (dataToSave.effective_date instanceof Date) {
-                dataToSave.effective_date = dataToSave.effective_date.toISOString().split('T')[0];
-            }
-            if (dataToSave.end_date instanceof Date) {
-                dataToSave.end_date = dataToSave.end_date.toISOString().split('T')[0];
-            }
-
-
-            if (onSaveSuccessCallback) {
-                 // onSaveSuccessCallback is the 'onSubmit' prop from RegulationDialog,
-                 // which is 'handleSubmit' from Regulations.jsx.
-                 // This 'handleSubmit' expects the raw form data and handles create/update.
-                await onSaveSuccessCallback(dataToSave);
-            }
-            // Success toast is handled by the parent component's handleSubmit
-
-        } catch (error) {
-            console.error("Error saving regulation:", error);
-            toast(messages.error(t, error.message || 'Failed to save regulation.'));
-        } finally {
-            setIsSubmitting(false);
-        }
-    }, [formData, validateForm, onSaveSuccessCallback, toast, t]);
-
-    return {
-        formData,
-        formErrors,
-        isSubmitting,
-        updateField,
-        handleFormSubmit,
-        resetForm,
-        setFormData, // Expose setFormData if direct manipulation is needed
-    };
+  return { form, handleSubmit, isLoading: form.formState.isSubmitting };
 }

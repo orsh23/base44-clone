@@ -1,316 +1,183 @@
-import React from 'react';
-import { useTranslation } from '../utils/i18n';
-import { cn } from '../utils/cn'; // Fixed import path
-import { Badge } from '../ui/badge';
-import { Button } from '../ui/button';
-import { formatDate } from '../utils/date-utils';
-import { Edit, Trash, Eye } from 'lucide-react';
-import { Checkbox } from '../ui/checkbox';
+// Content of components/hooks/useEntityColumns.js
+import { useMemo } from 'react';
+import { Badge } from '@/components/ui/badge'; 
+import { Checkbox } from '@/components/ui/checkbox'; 
+import { Button } from '@/components/ui/button'; 
+import { ArrowUpDown } from 'lucide-react';
+import { formatSafeDate, formatSafeDateDistance } from '@/components/utils/i18n-utils'; 
+import { getLocalizedValue } from '@/components/utils/i18n-utils'; 
 
 /**
- * Hook to get standardized columns configuration for tables based on entity type
- * @param {string} entityType - Type of entity (doctor, provider, material, etc.)
- * @param {Object} options - Configuration options
- * @returns {Array} Columns configuration for DataTable
+ * A hook to generate columns for a DataTable based on entity schema and configuration.
+ * @param {object} entityConfig - Configuration for the entity.
+ *   - {string} idField - The name of the ID field (default: 'id').
+ *   - {object} schema - The JSON schema of the entity.
+ *   - {object} columnOverrides - Custom configurations for specific columns.
+ *   - {Function} t - Translation function.
+ *   - {string} language - Current language code.
+ *   - {Function} onEdit - Handler for edit action.
+ *   - {Function} onDelete - Handler for delete action.
+ *   - {Function} onViewDetails - Handler for view details action.
+ * @param {object} displayPreferences - User display preferences for columns.
+ * @returns {Array} - Array of column definitions for DataTable.
  */
-export function useEntityColumns(entityType, options = {}) {
-  const { t } = useTranslation();
-  const {
-    onEdit,
-    onDelete,
-    onView,
-    includeSelection = false,
-    includeActions = true,
-    additionalColumns = [] // Added to support custom columns per entity type
-  } = options;
+export function useEntityColumns({
+  idField = 'id',
+  schema,
+  columnOverrides = {},
+  t,
+  language,
+  onEdit,
+  onDelete,
+  onViewDetails,
+  actions = ['edit', 'delete'], // Default actions
+  enableSelection = false,
+  onToggleSelection, // (itemId, isSelected) => void
+  isSelected, // (itemId) => boolean
+  customRenderers = {}, // { fieldName: (value, item, t, language) => JSX }
+  columnOrder = [], // Optional array of field names to set column order
+  hiddenColumns = [], // Optional array of field names to hide
+  sortableFields = [], // Optional array of field names that are sortable
+  onSortChange, // (field) => void
+  currentSortConfig, // { field, direction }
+}) {
 
-  // Common column definitions
-  const commonColumns = {
-    // Selection column
-    selection: includeSelection ? {
-      id: 'select',
-      header: (headerProps) => {
-        const { table } = headerProps || {};
-        if (!table) return null;
+  const defaultColumns = useMemo(() => {
+    if (!schema || !schema.properties) return [];
 
-        return (
-          <Checkbox
-            checked={
-              table.getIsAllPageRowsSelected && table.getIsAllPageRowsSelected() ||
-              (table.getIsSomePageRowsSelected && table.getIsSomePageRowsSelected() && 'indeterminate')
-            }
-            onCheckedChange={(value) => table.toggleAllPageRowsSelected && table.toggleAllPageRowsSelected(!!value)}
-            aria-label={t('common.selectAll')}
-          />
-        );
-      },
-      cell: (cellProps) => {
-        const { row } = cellProps || {};
-        if (!row) return null;
+    let properties = Object.entries(schema.properties);
 
-        return (
-          <Checkbox
-            checked={row.getIsSelected && row.getIsSelected()}
-            onCheckedChange={(value) => row.toggleSelected && row.toggleSelected(!!value)}
-            aria-label={t('common.selectRow', { rowNum: row.index + 1 })}
-          />
-        );
-      },
-      enableSorting: false,
-      enableHiding: false,
-    } : null,
+    // Apply custom column order if provided
+    if (Array.isArray(columnOrder) && columnOrder.length > 0) {
+      properties.sort((a, b) => {
+        const indexA = columnOrder.indexOf(a[0]);
+        const indexB = columnOrder.indexOf(b[0]);
+        if (indexA === -1 && indexB === -1) return 0; // neither in order, keep original
+        if (indexA === -1) return 1; // a not in order, b is, so b comes first
+        if (indexB === -1) return -1; // b not in order, a is, so a comes first
+        return indexA - indexB;
+      });
+    }
+    
+    // Filter out hidden columns
+    if(Array.isArray(hiddenColumns) && hiddenColumns.length > 0) {
+        properties = properties.filter(([key]) => !hiddenColumns.includes(key));
+    }
 
-    // Status badge for entities with status
-    status: {
-      accessorKey: 'status',
-      header: () => t('common.status'),
-      cell: ({ row }) => {
-        // FIX: Use row.original instead of row.getValue
-        const data = row.original || {};
-        const statusValue = data.status;
-        if (!statusValue) return null;
 
-        let colorClass;
-        // Simplified status coloring, can be expanded
-        switch (String(statusValue).toLowerCase()) {
-          case 'active':
-            colorClass = 'bg-green-100 text-green-800';
-            break;
-          case 'inactive':
-            colorClass = 'bg-gray-100 text-gray-800';
-            break;
-          case 'pending':
-          case 'in_progress':
-          case 'in_review':
-            colorClass = 'bg-blue-100 text-blue-800';
-            break;
-          case 'expired':
-          case 'rejected':
-          case 'terminated':
-            colorClass = 'bg-red-100 text-red-800';
-            break;
-          case 'draft':
-            colorClass = 'bg-yellow-100 text-yellow-800';
-            break;
-          default:
-            colorClass = 'bg-slate-100 text-slate-800';
-        }
+    const generatedColumns = properties.map(([key, propSchema]) => {
+      const override = columnOverrides[key] || {};
+      const header = override.header || propSchema.title || t(`fields.${key}`, { defaultValue: key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()) });
+      const isSortable = sortableFields.includes(key);
 
-        return (
-          <Badge className={cn(colorClass)}>
-            {t(`statusOptions.${statusValue}`) || statusValue}
-          </Badge>
-        );
-      },
-    },
+      return {
+        accessorKey: key,
+        header: isSortable && onSortChange ? (
+            <Button variant="ghost" onClick={() => onSortChange(key)} className="px-1">
+                {header}
+                {currentSortConfig?.field === key && (
+                    currentSortConfig.direction === 'asc' ? <ArrowUpDown className="ml-2 h-3 w-3 transform rotate-180" /> : <ArrowUpDown className="ml-2 h-3 w-3" />
+                )}
+                {currentSortConfig?.field !== key && <ArrowUpDown className="ml-2 h-3 w-3 opacity-30" />}
+            </Button>
+        ) : header,
+        cell: ({ row }) => {
+          const item = row.original;
+          let value = item[key];
 
-    // Created/Updated date formatter
-    created: {
-      accessorKey: 'created_date',
-      header: () => t('common.created'),
-      cell: ({ row }) => {
-        // FIX: Use row.original instead of row.getValue
-        const data = row.original || {};
-        return formatDate(data.created_date);
-      },
-    },
+          if (customRenderers[key]) {
+            return customRenderers[key](value, item, t, language);
+          }
+          
+          // Bilingual object handling (e.g. name.en, name.he)
+          if (typeof value === 'object' && value !== null && (value.hasOwnProperty('en') || value.hasOwnProperty('he'))) {
+            value = getLocalizedValue(item, key, language);
+          }
 
-    // Updated date formatter
-    updated: {
-      accessorKey: 'updated_date',
-      header: () => t('common.updated'),
-      cell: ({ row }) => {
-        // FIX: Use row.original instead of row.getValue
-        const data = row.original || {};
-        return formatDate(data.updated_date);
-      },
-    },
 
-    // Actions column
-    actions: includeActions ? {
-      id: 'actions',
-      cell: ({ row }) => {
-        const item = row.original;
-        if (!item) return null;
-
-        return (
-          <div className="flex justify-end gap-1">
-            {onView && (
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={(e) => { e.stopPropagation(); onView(item); }}
-                aria-label={t('common.view')}
-                title={t('common.view')}
-              >
-                <Eye className="h-4 w-4" />
-              </Button>
-            )}
-
-            {onEdit && (
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={(e) => { e.stopPropagation(); onEdit(item); }}
-                aria-label={t('common.edit')}
-                title={t('common.edit')}
-              >
-                <Edit className="h-4 w-4" />
-              </Button>
-            )}
-
-            {onDelete && (
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={(e) => { e.stopPropagation(); onDelete(item); }}
-                aria-label={t('common.delete')}
-                title={t('common.delete')}
-                className="text-destructive hover:text-destructive/80"
-              >
-                <Trash className="h-4 w-4" />
-              </Button>
-            )}
-          </div>
-        );
-      },
-    } : null,
-  };
-
-  // Remove null columns (like 'selection' if includeSelection is false)
-  const filteredCommonColumns = Object.values(commonColumns).filter(Boolean);
-
-  let entitySpecificColumns = [];
-  
-  const baseColumns = [];
-  if (commonColumns.selection) baseColumns.push(commonColumns.selection);
-
-  switch (entityType) {
-    case 'doctor':
-      baseColumns.push(
-        { accessorKey: 'first_name_en', header: () => t('doctors.firstNameEn') },
-        { accessorKey: 'last_name_en', header: () => t('doctors.lastNameEn') },
-        { accessorKey: 'first_name_he', header: () => t('doctors.firstNameHe') },
-        { accessorKey: 'last_name_he', header: () => t('doctors.lastNameHe') },
-        { accessorKey: 'license_number', header: () => t('doctors.licenseNumber') },
-        { accessorKey: 'specialty', header: () => t('doctors.specialty') },
-        { accessorKey: 'phone', header: () => t('doctors.phone') },
-        { accessorKey: 'email', header: () => t('doctors.email') },
-        commonColumns.status,
-        // Add more doctor-specific columns if needed
-      );
-      break;
-    case 'provider':
-      baseColumns.push(
-        { 
-          accessorKey: 'name.en', 
-          header: () => t('providers.nameEn'), 
-          cell: ({ row }) => row.original?.name?.en 
+          if (propSchema.type === 'boolean') {
+            return value ? <Badge variant="success">{t('common.yes', {defaultValue: 'Yes'})}</Badge> : <Badge variant="outline">{t('common.no', {defaultValue: 'No'})}</Badge>;
+          }
+          if (propSchema.format === 'date' || propSchema.format === 'date-time' || key.toLowerCase().includes('date') || key.toLowerCase().includes('_at')) {
+            return formatSafeDate(value, language === 'he' ? 'he' : 'en-US', { dateStyle: 'medium' });
+          }
+          if (Array.isArray(value)) {
+            return value.join(', ');
+          }
+          if (propSchema.enum && Array.isArray(propSchema.enum)) {
+             // Try to translate enum value
+             return t(`enums.${key}.${value}`, {defaultValue: String(value ?? '') });
+          }
+          
+          return String(value ?? t('common.notSet', {defaultValue: 'N/A'}));
         },
-        { 
-          accessorKey: 'name.he', 
-          header: () => t('providers.nameHe'), 
-          cell: ({ row }) => row.original?.name?.he 
-        },
-        { accessorKey: 'provider_type', header: () => t('providers.type') },
-        { 
-          accessorKey: 'legal.identifier', 
-          header: () => t('providers.legalIdentifier'),
-          cell: ({ row }) => row.original?.legal?.identifier
-        },
-        commonColumns.status
-      );
-      break;
-    case 'material':
-        baseColumns.push(
-            { accessorKey: 'name_en', header: () => t('materials.nameEn')},
-            { accessorKey: 'name_he', header: () => t('materials.nameHe')},
-            { accessorKey: 'unit_of_measure', header: () => t('materials.unitOfMeasure')},
-            { accessorKey: 'base_price', header: () => t('materials.basePrice'), cell: ({row}) => `${row.original?.base_price || 0} ${row.original?.currency || ''}` },
-            { accessorKey: 'is_active', header: () => t('materials.isActive'), cell: ({row}) => row.original?.is_active ? t('common.yes') : t('common.no')},
-        );
-        break;
-    case 'task':
-        baseColumns.push(
-            { accessorKey: 'title', header: () => t('tasks.title')},
-            { accessorKey: 'status', header: () => t('tasks.status'),
-              cell: ({row}) => {
-                const statusValue = row.original?.status;
-                if (!statusValue) return '';
-                
-                let colorClass;
-                switch (statusValue) {
-                  case 'todo': 
-                    colorClass = 'bg-gray-100 text-gray-800';
-                    break;
-                  case 'in_progress':
-                    colorClass = 'bg-blue-100 text-blue-800';
-                    break;
-                  case 'done':
-                    colorClass = 'bg-green-100 text-green-800';
-                    break;
-                  default:
-                    colorClass = 'bg-slate-100 text-slate-800';
-                }
-                
-                return (
-                  <Badge className={cn(colorClass)}>
-                    {t(`tasks.statusOptions.${statusValue}`) || statusValue}
-                  </Badge>
-                );
-              }
-            },
-            { accessorKey: 'priority', header: () => t('tasks.priority'),
-              cell: ({row}) => {
-                const priorityValue = row.original?.priority;
-                if (!priorityValue) return '';
-                
-                let colorClass;
-                switch (priorityValue) {
-                  case 'low': 
-                    colorClass = 'bg-blue-100 text-blue-800';
-                    break;
-                  case 'medium':
-                    colorClass = 'bg-yellow-100 text-yellow-800';
-                    break;
-                  case 'high':
-                    colorClass = 'bg-red-100 text-red-800';
-                    break;
-                  default:
-                    colorClass = 'bg-slate-100 text-slate-800';
-                }
-                
-                return (
-                  <Badge className={cn(colorClass)}>
-                    {t(`tasks.priorityOptions.${priorityValue}`) || priorityValue}
-                  </Badge>
-                );
-              }
-            },
-            { accessorKey: 'category', header: () => t('tasks.category'),
-              cell: ({row}) => {
-                const categoryValue = row.original?.category;
-                return categoryValue || '';
-              }
-            },
-            { accessorKey: 'due_date', header: () => t('tasks.dueDate'),
-              cell: ({row}) => formatDate(row.original?.due_date)
-            },
-        );
-        break;
-    // Add cases for other entities (medical_code, contract, task, etc.)
-    default:
-      // Generic columns if no specific type, or a warning
-      baseColumns.push({ accessorKey: 'id', header: 'ID' }); // Fallback
-  }
+        enableSorting: isSortable,
+        ...override, // Spread any other native react-table column options from override
+      };
+    });
+    
+    let actionCols = [];
+    if (actions && actions.length > 0) {
+        actionCols.push({
+            id: 'actions',
+            header: t('common.actions', { defaultValue: 'Actions' }),
+            cell: ({ row }) => (
+              <div className="flex space-x-1 rtl:space-x-reverse">
+                {actions.includes('view') && onViewDetails && (
+                  <Button variant="ghost" size="sm" onClick={() => onViewDetails(row.original)}>
+                    {t('buttons.viewDetails', {defaultValue: 'View'})}
+                  </Button>
+                )}
+                {actions.includes('edit') && onEdit && (
+                  <Button variant="ghost" size="sm" onClick={() => onEdit(row.original)}>
+                    {t('buttons.edit', {defaultValue: 'Edit'})}
+                  </Button>
+                )}
+                {actions.includes('delete') && onDelete && (
+                  <Button variant="destructive" size="sm" onClick={() => onDelete(row.original[idField])}>
+                     {t('buttons.delete', {defaultValue: 'Delete'})}
+                  </Button>
+                )}
+              </div>
+            ),
+        });
+    }
 
-  // Add any additional columns passed in options
-  baseColumns.push(...additionalColumns);
+    if (enableSelection) {
+        return [
+            {
+                id: 'select',
+                header: ({ table }) => (
+                    <Checkbox
+                        checked={table.getIsAllPageRowsSelected()}
+                        onCheckedChange={(value) => table.toggleAllPageRowsSelected(!!value)}
+                        aria-label={t('bulkActions.selectAllOnPage', { defaultValue: "Select all on page"})}
+                    />
+                ),
+                cell: ({ row }) => (
+                    <Checkbox
+                        checked={row.getIsSelected()}
+                        onCheckedChange={(value) => {
+                            row.toggleSelected(!!value);
+                            if (onToggleSelection) {
+                                onToggleSelection(row.original[idField], !!value);
+                            }
+                        }}
+                        aria-label={t('bulkActions.selectRow', {defaultValue: "Select row"})}
+                    />
+                ),
+                enableSorting: false,
+                enableHiding: false,
+            },
+            ...generatedColumns,
+            ...actionCols
+        ];
+    }
 
 
-  if (includeActions && (onEdit || onDelete || onView)) {
-    baseColumns.push(commonColumns.actions);
-  }
+    return [...generatedColumns, ...actionCols];
 
-  return baseColumns.filter(Boolean); // Filter out nulls (e.g., if selection is false)
+  }, [schema, columnOverrides, t, language, onEdit, onDelete, onViewDetails, actions, idField, enableSelection, onToggleSelection, customRenderers, columnOrder, hiddenColumns, sortableFields, onSortChange, currentSortConfig]);
+
+  return defaultColumns;
 }

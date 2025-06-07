@@ -1,41 +1,68 @@
+// Content of components/hooks/useFilterPersistence.js
 import { useState, useEffect, useCallback } from 'react';
-import { saveToStorage, loadFromStorage } from '@/components/utils/storage';
+
+// Helper functions for local storage
+const loadFromStorage = (key, defaultValue) => {
+  try {
+    const item = localStorage.getItem(key);
+    return item ? JSON.parse(item) : defaultValue;
+  } catch (error) {
+    console.warn(`Error loading from localStorage key "${key}":`, error);
+    return defaultValue;
+  }
+};
+
+const saveToStorage = (key, value) => {
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch (error) {
+    console.error(`Error saving to localStorage key "${key}":`, error);
+  }
+};
+
 
 /**
- * Hook for persisting filter state to localStorage
- * 
- * @param {string} storageKey Key for localStorage
- * @param {Object} defaultFilters Default filter values
- * @returns {[Object, Function, Function]} [filters, setFilters, resetFilters]
+ * A hook to manage and persist filter state using localStorage.
+ * @param {string} storageKey - The localStorage key for persisting filters.
+ * @param {object} initialFilters - The initial state of the filters.
+ * @returns {object} - { filters, setFilter, resetFilters, setFiltersBatch }
  */
-export function useFilterPersistence(storageKey, defaultFilters = {}) {
-  // Load initial filters from storage or use defaults
-  const [filters, setFiltersState] = useState(() => 
-    loadFromStorage(`${storageKey}_filters`, defaultFilters)
-  );
-  
-  // Save filters to storage whenever they change
+export default function useFilterPersistence(storageKey, initialFilters = {}) {
+  const [filters, setFiltersState] = useState(() => {
+    return loadFromStorage(storageKey, initialFilters);
+  });
+
+  // Update localStorage whenever filters change
   useEffect(() => {
-    saveToStorage(`${storageKey}_filters`, filters);
+    saveToStorage(storageKey, filters);
   }, [filters, storageKey]);
-  
-  // Wrapper for setFilters
-  const setFilters = useCallback((newFilters) => {
-    if (typeof newFilters === 'function') {
-      setFiltersState(prev => {
-        const updated = newFilters(prev);
-        return updated;
-      });
-    } else {
-      setFiltersState(prev => ({ ...prev, ...newFilters }));
-    }
+
+  const setFilter = useCallback((filterName, value) => {
+    setFiltersState(prevFilters => ({
+      ...prevFilters,
+      [filterName]: value,
+    }));
   }, []);
   
-  // Reset to defaults and clear storage
+  const setFiltersBatch = useCallback((newFilters) => {
+    setFiltersState(prevFilters => ({
+      ...prevFilters,
+      ...newFilters,
+    }));
+  }, []);
+
   const resetFilters = useCallback(() => {
-    setFiltersState(defaultFilters);
-    saveToStorage(`${storageKey}_filters`, defaultFilters);
-  }, [defaultFilters, storageKey]);
-  
-  return [filters, setFilters, resetFilters];
+    setFiltersState(initialFilters);
+    // Optionally clear from storage too, or let useEffect handle it
+    // localStorage.removeItem(storageKey); 
+  }, [initialFilters]); // Removed storageKey from deps as it's constant for hook instance
+
+  return {
+    filters,
+    setFilter,
+    setFiltersBatch, // For setting multiple filters at once
+    resetFilters,
+    // Expose setFiltersState directly if more complex state updates are needed by the component
+    // _setRawFilters: setFiltersState 
+  };
 }

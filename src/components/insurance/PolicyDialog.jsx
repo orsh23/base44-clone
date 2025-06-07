@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useMemo } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
@@ -6,7 +7,7 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from '@/components/ui/textarea'; // Added
 import DatePicker from '@/components/ui/date-picker'; // Assuming a DatePicker component exists
-import FormField from '@/components/forms/FormField';
+import FormField from '@/components/shared/forms/FormField'; // Corrected path
 import { useLanguageHook } from '@/components/useLanguageHook';
 import { useToast } from '@/components/ui/use-toast';
 import { InsuredPerson } from '@/api/entities'; // For fetching list

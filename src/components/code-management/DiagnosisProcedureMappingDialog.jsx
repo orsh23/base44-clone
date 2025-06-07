@@ -1,3 +1,4 @@
+
 import React, { useEffect, useState } from 'react';
     import { useForm, Controller } from 'react-hook-form';
     // import { zodResolver } from '@hookform/resolvers/zod'; // Removed
@@ -10,8 +11,9 @@ import React, { useEffect, useState } from 'react';
     import { Checkbox } from '@/components/ui/checkbox';
     import { Label } from '@/components/ui/label';
     import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogClose } from '@/components/ui/dialog';
-    import FormField from '@/components/shared/FormField';
+    import FormField from '@/components/shared/forms/FormField';
     import { MedicalCode } from '@/api/entities';
+    import { useToast } from '@/components/ui/use-toast';
 
     // Zod schema removed
 
