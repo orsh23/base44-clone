@@ -10,6 +10,7 @@ export default function IndexPage() {
         // Redirect to dashboard using logical page name
         window.location.href = createPageUrl("dashboard");
       } catch (error) {
+        console.error("Authentication check failed:", error);
         try {
           await User.login();
         } catch (loginError) {
@@ -31,4 +32,5 @@ export default function IndexPage() {
     </div>
   );
 }
+
 IndexPage.propTypes = {};
