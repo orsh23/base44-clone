@@ -1,6 +1,6 @@
 
 import React from 'react';
-import { User } from '@/api/entities';
+import { User } from '@/api/entities'; // Corrected import path
 import { Button } from '@/components/ui/button';
 import { AppStoreProvider } from '@/components/store/useAppStore';
 import { Toaster } from '@/components/ui/toaster'; 
@@ -24,7 +24,7 @@ import {
   X 
 } from 'lucide-react';
 
-function LayoutContent({ children }) { 
+function LayoutContent({ children }) {
   const [sidebarOpen, setSidebarOpen] = React.useState(true);
   const [currentUser, setCurrentUser] = React.useState(null);
 
@@ -33,7 +33,9 @@ function LayoutContent({ children }) {
       try {
         const user = await User.me();
         setCurrentUser(user);
-      } catch (error) { /* User might not be logged in */ }
+      } catch (error) {
+        console.error('Layout: could not fetch user', error); // Added error logging
+      }
     };
     fetchUser();
   }, []);
@@ -134,7 +136,7 @@ function LayoutContent({ children }) {
                       ? 'text-white bg-blue-600 dark:bg-blue-500'
                       : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-700'
                   }`}
-                  onClick={(e) => { 
+                  onClick={() => {
                     if (window.innerWidth < 1024) {
                        setSidebarOpen(false);
                     }
