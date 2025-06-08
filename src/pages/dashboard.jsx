@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo } from "react";
+import PropTypes from "prop-types";
 import PageLayout from "@/components/common/PageLayout";
 import PageHeader from "@/components/common/PageHeader";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
@@ -87,6 +88,18 @@ const ActivityItem = React.memo(function ActivityItem({
     </li>
   );
 });
+
+ActivityItem.propTypes = {
+  activity: PropTypes.shape({
+    id: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
+    title: PropTypes.string,
+    date: PropTypes.any,
+    type: PropTypes.string,
+  }),
+  safeFormatDate: PropTypes.func.isRequired,
+  t: PropTypes.func.isRequired,
+  index: PropTypes.number.isRequired,
+};
 
 export default function DashboardPage() {
   const { t } = useLanguageHook();
@@ -255,3 +268,5 @@ export default function DashboardPage() {
     </PageLayout>
   );
 }
+
+DashboardPage.propTypes = {};

@@ -19,7 +19,9 @@ export default function AdminSettingsPage() {
         })}
         icon={Settings}
       />
-      <AdminSettingsTabs />
+    <AdminSettingsTabs />
     </PageLayout>
   );
 }
+
+AdminSettingsPage.propTypes = {};
