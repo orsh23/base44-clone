@@ -1,24 +1,24 @@
-import { FileCode2 } from "lucide-react";
 import PageLayout from "@/components/common/PageLayout";
 import PageHeader from "@/components/common/PageHeader";
-import CodeManagementPageContent from "@/components/code-management/code-management-page"; // Updated import path
+import ContractManagementTabs from "@/components/contract-management/ContractManagementTabs";
+import { ScrollText } from "lucide-react";
 import { useLanguageHook } from "@/components/useLanguageHook";
 
-export default function CodeManagementPage() {
+export default function ContractsPage() {
   const { t } = useLanguageHook();
   return (
     <PageLayout>
       <PageHeader
-        title={t("pageTitles.codeManagement", {
-          defaultValue: "Code Management",
+        title={t("pageTitles.contracts", { defaultValue: "Contracts" })}
+        description={t("contracts.pageDescription", {
+          defaultValue: "Manage contracts and related templates.",
         })}
-        description={t("codeManagement.pageDescription", {
-          defaultValue:
-            "Manage medical, internal, provider codes, and their mappings.",
-        })}
-        icon={FileCode2}
+        icon={ScrollText}
       />
-      <CodeManagementPageContent />
+      <ContractManagementTabs />
     </PageLayout>
   );
 }
+
+ContractsPage.propTypes = {};
+

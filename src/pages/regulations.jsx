@@ -22,3 +22,5 @@ export default function RegulationsPage() {
     </PageLayout>
   );
 }
+
+RegulationsPage.propTypes = {};

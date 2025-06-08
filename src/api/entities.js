@@ -1,6 +1,4 @@
 import { base44 } from './base44Client';
-
-
 export const Provider = base44.entities.Provider;
 
 export const Doctor = base44.entities.Doctor;
@@ -82,8 +80,5 @@ export const City = base44.entities.City;
 export const Street = base44.entities.Street;
 
 export const Address = base44.entities.Address;
-
-
-
 // auth sdk:
 export const User = base44.auth;

@@ -21,3 +21,5 @@ export default function RequestManagementPage() {
     </PageLayout>
   );
 }
+
+RequestManagementPage.propTypes = {};

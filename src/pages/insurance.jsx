@@ -22,3 +22,5 @@ export default function InsurancePage() {
     </PageLayout>
   );
 }
+
+InsurancePage.propTypes = {};
