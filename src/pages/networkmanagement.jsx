@@ -12,6 +12,7 @@ export default function NetworkManagementPage() {
   const { t, isRTL } = useLanguageHook();
   const [activeTab, setActiveTab] = useState("providers");
 
+  // t dependency ensures tab labels update when language changes
   const TABS_CONFIG = React.useMemo(
     () => [
       {
@@ -33,8 +34,9 @@ export default function NetworkManagementPage() {
         component: <ProviderDoctorLinkageTab />,
       },
     ],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [t],
-  ); // t dependency to re-evaluate labels if language changes
+  );
 
   return (
     <PageLayout>
@@ -70,3 +72,5 @@ export default function NetworkManagementPage() {
     </PageLayout>
   );
 }
+
+NetworkManagementPage.propTypes = {};

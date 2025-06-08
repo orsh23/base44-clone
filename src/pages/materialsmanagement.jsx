@@ -22,3 +22,5 @@ export default function MaterialsManagementPage() {
     </PageLayout>
   );
 }
+
+MaterialsManagementPage.propTypes = {};
