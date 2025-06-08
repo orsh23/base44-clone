@@ -1,5 +1,6 @@
 
 import React from 'react';
+import PropTypes from 'prop-types';
 import { User } from '@/api/entities'; // Corrected import path
 import { Button } from '@/components/ui/button';
 import { AppStoreProvider } from '@/components/store/useAppStore';
@@ -197,6 +198,10 @@ function LayoutContent({ children }) {
   );
 }
 
+LayoutContent.propTypes = {
+  children: PropTypes.node,
+};
+
 export default function Layout({ children }) {
   return (
     <LanguageProvider defaultLanguage="en">
@@ -209,3 +214,7 @@ export default function Layout({ children }) {
     </LanguageProvider>
   );
 }
+
+Layout.propTypes = {
+  children: PropTypes.node,
+};
