@@ -31,3 +31,4 @@ export default function IndexPage() {
     </div>
   );
 }
+IndexPage.propTypes = {};
